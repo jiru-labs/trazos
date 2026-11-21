@@ -80,7 +80,7 @@ STYLE = """
 .admin form { display: grid; gap: .9rem; max-width: 700px; }
 .admin label { display: grid; gap: .25rem; font-weight: 600; }
 .admin label.check { display: flex; gap: .5rem; align-items: center; }
-.admin input[type=text], .admin input[type=number], .admin select, .admin textarea {
+.admin input[type=text], .admin input[type=number], .admin input[type=password], .admin select, .admin textarea {
   font: inherit; padding: .5rem .6rem; border: 2px solid var(--line); border-radius: 6px;
   background: var(--card); color: var(--fg); font-weight: 400; width: 100%; }
 .admin textarea { min-height: 9rem; }

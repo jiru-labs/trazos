@@ -11,8 +11,10 @@ with the story in the artist's own words.
   years, never birthdays or places. `noindex` and a `robots.txt` keep search engines
   and AI crawlers out.
 - **Nothing leaks from the photo.** `tools/prepare.sh` strips EXIF/GPS/camera data
-  and OCRs the image so you can spot a signed surname or a school name before it goes
-  public. The build *refuses* any JPEG that still carries EXIF or XMP.
+  and OCRs the image, which catches printed text such as a school stamp. OCR does
+  **not** read a child's handwriting, so a signed surname or a dedication is only
+  caught by looking: always review the image itself. The build *refuses* any JPEG
+  that still carries EXIF or XMP.
 - **No scripts, no trackers, no third parties.** A Content-Security-Policy forbids them.
 - **Built to last decades.** Plain text sidecars next to plain JPEGs, one Python file
   with no dependencies. If trazos disappears, your archive is still readable.

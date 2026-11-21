@@ -30,5 +30,6 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: public
+          include-hidden-files: true   # .well-known/tdmrep.json (protect)
       - id: deploy
         uses: actions/deploy-pages@v5

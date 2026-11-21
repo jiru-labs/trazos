@@ -34,10 +34,6 @@ STRINGS = {
         "no_tags": "Sin etiquetas todavía.", "no_favs": "Sin favoritos todavía.",
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
         "ages_many": "{list} años", "default_title": "Las obras de {artist}",
-        "months": "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre",
-        "month_year": "{month} de {year}", "months_of": "Meses de {year}",
-        "no_month": "Algún día de {year}", "no_month_short": "¿?",
-        "no_month_note": "De estas no sabemos el mes. Si un día lo recordamos, vuelven a su sitio.",
         "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
                   "para minería de textos y datos o para entrenar inteligencia artificial "
                   "(art. 4.3 de la Directiva (UE) 2019/790).",
@@ -48,10 +44,6 @@ STRINGS = {
         "no_tags": "No tags yet.", "no_favs": "No favourites yet.",
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
         "ages_many": "ages {list}", "default_title": "The art of {artist}",
-        "months": "January February March April May June July August September October November December",
-        "month_year": "{month} {year}", "months_of": "Months of {year}",
-        "no_month": "Sometime in {year}", "no_month_short": "?",
-        "no_month_note": "We don't know the month of these. If we ever remember, they move to their place.",
         "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
                   "mining or to train artificial intelligence, is not permitted "
                   "(Art. 4(3) of Directive (EU) 2019/790).",
@@ -67,10 +59,6 @@ BLOCKED_BOTS = (
     "MistralAI-User", "YouBot", "Timpibot", "ImagesiftBot", "Omgilibot", "img2dataset",
     "AI2Bot", "PetalBot", "Googlebot-Image", "bingbot", "Googlebot",
 )
-# A small season mark next to each month. Index 0 = January. `seasons` in trazos.toml picks the
-# hemisphere ("north", the default, or "south") or turns it off ("none").
-SEASONS = {"north": "❄❄🌸🌸🌸☀☀☀🍂🍂🍂❄", "south": "☀☀🍂🍂🍂❄❄❄🌸🌸🌸☀"}
-SEASON_CLASS = {"❄": "winter", "🌸": "spring", "☀": "summer", "🍂": "autumn"}
 # Page slugs stay ASCII and language-neutral so URLs never change with `lang`.
 TAGS_PAGE, FAVS_PAGE = "tags.html", "favourites.html"
 
@@ -92,9 +80,6 @@ def load_config(root):
     # `protect` (default on) keeps the site out of search engines and AI crawlers and reserves
     # text-and-data-mining rights. `noindex` is its old name and still works.
     cfg.setdefault("protect", cfg.get("noindex", True))
-    cfg.setdefault("seasons", "north")
-    if cfg["seasons"] not in (*SEASONS, "none"):
-        fail("trazos.toml: seasons must be north, south or none")
     t = STRINGS[cfg["lang"]]
     cfg.setdefault("title", t["default_title"].format(artist=cfg["artist"]))
     return cfg
@@ -151,6 +136,7 @@ def parse(path, pieces_dir):
         lo, hi = int(m_age.group(1)), int(m_age.group(2) or m_age.group(1))
         meta["age"] = str(lo) if lo == hi else f"{lo}–{hi}"
         meta["age_span"] = list(range(lo, hi + 1))
+    # The month is never shown: it only orders a year from December back to January.
     if meta.get("month"):
         if not meta["month"].isdigit() or not 1 <= int(meta["month"]) <= 12:
             fail(f"{path.name}: month must be a number from 1 to 12")
@@ -178,56 +164,6 @@ class Site:
     def __init__(self, cfg):
         self.cfg = cfg
         self.t = STRINGS[cfg["lang"]]
-        self.month_names = self.t["months"].split()
-
-    def season(self, m):
-        """(mark, css class) for month m, or ('', '') when seasons are off."""
-        if self.cfg["seasons"] == "none":
-            return "", ""
-        mark = SEASONS[self.cfg["seasons"]][m - 1]
-        return mark, SEASON_CLASS[mark]
-
-    def when(self, p):
-        """'noviembre de 2026' / 'November 2026', or just the year."""
-        if not p["month"]:
-            return str(p["year"])
-        return self.t["month_year"].format(month=self.month_names[p["month"] - 1], year=p["year"])
-
-    def year_section(self, year, items):
-        """A year, split by month (newest first) with a calendar strip; undated months last."""
-        ages = sorted({a for p in items for a in p.get("age_span", [])})
-        sub = f" <small>({e(self.ages(ages))})</small>" if ages else ""
-        head = f'<h2 id="y{year}">{year}{sub}</h2>'
-        months = sorted({p["month"] for p in items if p["month"]}, reverse=True)
-        if not months:  # nothing dated to the month: the year stays one grid, as before
-            return f"<section>{head}{self.grid(items)}</section>"
-        undated = [p for p in items if not p["month"]]
-        chips = []
-        for m in range(1, 13):
-            name = self.month_names[m - 1]
-            _, cls = self.season(m)
-            n = sum(p["month"] == m for p in items)
-            label = e(name[:3])
-            if n:
-                chips.append(f'<a class="{cls}" href="#y{year}-{m:02d}" title="{e(name)} · {n}">{label}</a>')
-            else:
-                chips.append(f'<span aria-hidden="true">{label}</span>')
-        if undated:
-            chips.append(f'<a class="unknown" href="#y{year}-x" title="{e(self.t["no_month"].format(year=year))} · '
-                         f'{len(undated)}">{e(self.t["no_month_short"])}</a>')
-        strip = f'<nav class="months" aria-label="{e(self.t["months_of"].format(year=year))}">{"".join(chips)}</nav>'
-        parts = [head, strip]
-        for m in months:
-            mark, cls = self.season(m)
-            mark = f'<span class="season" aria-hidden="true">{mark}</span> ' if mark else ""
-            month_items = [p for p in items if p["month"] == m]
-            parts.append(f'<div class="month {cls}"><h3 id="y{year}-{m:02d}">{mark}{e(self.month_names[m - 1].capitalize())}'
-                         f' <small>{len(month_items)}</small></h3>{self.grid(month_items)}</div>')
-        if undated:
-            parts.append(f'<div class="month unknown"><h3 id="y{year}-x"><span class="season" aria-hidden="true">✨</span> '
-                         f'{e(self.t["no_month"].format(year=year))} <small>{len(undated)}</small></h3>'
-                         f'<p class="note">{e(self.t["no_month_note"])}</p>{self.grid(undated)}</div>')
-        return "<section>" + "".join(parts) + "</section>"
 
     def age(self, n):
         """'5' -> '5 años' / 'age 5'; '3–4' -> '3–4 años' / 'ages 3–4'."""
@@ -304,7 +240,7 @@ def build(root):
     site = Site(cfg)
     t = site.t
     pieces_dir, out = root / "pieces", root / "public"
-    pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: (p["year"], p["month"] or 13, p["order"], p["id"]))
+    pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: (p["year"], p["order"], p["id"]))
 
     if out.exists():
         shutil.rmtree(out)
@@ -325,23 +261,28 @@ def build(root):
 
     # Timeline, newest year first
     if pieces:
-        body = "\n".join(site.year_section(y, [p for p in pieces if p["year"] == y])
-                         for y in sorted({p["year"] for p in pieces}, reverse=True))
+        parts = []
+        for year in sorted({p["year"] for p in pieces}, reverse=True):
+            # Newest first inside the year too: December back to January, undated months last.
+            items = sorted((p for p in pieces if p["year"] == year),
+                           key=lambda p: (p["month"] is None, -(p["month"] or 0), -p["order"], p["id"]))
+            ages = sorted({a for p in items for a in p.get("age_span", [])})
+            sub = f" <small>({e(site.ages(ages))})</small>" if ages else ""
+            parts.append(f'<section><h2 id="y{year}">{year}{sub}</h2>{site.grid(items)}</section>')
+        body = "\n".join(parts)
     else:
         body = f'<p class="empty">{t["empty"]}</p>'
     write("index.html", site.page(cfg["title"], body))
 
     for p in pieces:
         label = p.get("title") or t["untitled"]
-        anchor = f'y{p["year"]}-{p["month"]:02d}' if p["month"] else f'y{p["year"]}'
-        facts = " · ".join(x for x in (f'<a href="../index.html#{anchor}">{e(site.when(p))}</a>',
-                                       e(site.age(p["age"])) if p.get("age") else "",
-                                       e(p.get("technique", ""))) if x)
+        facts = " · ".join(x for x in (str(p["year"]), site.age(p["age"]) if p.get("age") else "",
+                                       p.get("technique", "")) if x)
         tags = "".join(f'<a href="../tag/{e(slug(x))}.html">{e(x)}</a>' for x in p["tags"])
         story = "".join(f"<p>{e(s)}</p>" for s in p["story"])
         body = (
             f'<article class="piece"><img src="../img/{e(p["id"])}.jpg" alt="{e(label)}">'
-            f"<h1>{e(label)}{' ★' if p['favourite'] else ''}</h1><p class=\"facts\">{facts}</p>"
+            f"<h1>{e(label)}{' ★' if p['favourite'] else ''}</h1><p class=\"facts\">{e(facts)}</p>"
             f"{story}<p class=\"tags\">{tags}</p></article>"
         )
         write(f"piece/{p['id']}.html", site.page(label, body, 1))

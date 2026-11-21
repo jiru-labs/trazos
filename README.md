@@ -50,12 +50,11 @@ python3 build.py path/to/your-archive
 - Name files `<date> <anything> - <title>.<ext>`, where `<date>` is `2026-05-14`, `2026-05`
   or `2026` (`2025 Dibujo - el gato.heic`). Without a date, the photo's EXIF date is used.
   A year alone gives an age range (`ages 4–5`).
-- **Months.** Each year is split by month, newest first, under a little calendar strip with
-  season colours (`seasons = "north" | "south" | "none"` in `trazos.toml`). A piece only gets
-  a month when the date is honest about it: `2026-05` in the name or a `month:` line always
-  count; a full camera date counts unless 6 or more pieces share that exact day — that is
-  a photo session of older work, so those pieces go to "Sometime in 2026" and their age is
-  computed from the year alone. Name one `2025-06 …` (or add `month: june`) and it moves.
+- **Months** are never shown: they only order each year from December back to January,
+  newest first. A piece gets one only when the date is honest about it: `2026-05` in the
+  name or a `month:` line always count; a full camera date counts unless 6 or more pieces
+  share that exact day (a photo session of older work). Pieces without a month go last in
+  their year, and their age is computed from the year alone.
 - Optional `<same name>.txt` next to it: first lines `technique:`, `tags:`, `favourite: yes`,
   `month: june`, then the story.
 - Each photo is turned upright, **cropped to the sheet of paper** when one is found (OpenCV;
@@ -100,7 +99,7 @@ The story in the artist's words. Blank lines separate paragraphs.
 ```
 
 Only `id` and `year` are required. `month` is 1–12 (leave it out when you don't know it);
-`age` may be a range (`4-5`); `order` sorts pieces inside a month.
+`age` may be a range (`4-5`); `order` sorts pieces inside a month (newest first).
 
 ## Build locally
 
@@ -127,8 +126,8 @@ rastreadores. Los originales se quedan contigo y en git solo entran las copias p
 
 Lo más cómodo: una carpeta con los originales y `tools/ingest.py` (arriba). Lo que está en la
 carpeta se publica; lo que metes en una subcarpeta, no. Recorta la hoja sola y acepta HEIC.
-Cada año se separa por meses; lo que no sabemos de qué mes es queda en «Algún día de 2026»
-hasta que lo nombres `2025-06 …` o le pongas `mes: junio` en su `.txt`.
+El mes no se muestra: solo ordena cada año de diciembre a enero. Lo que no sabemos de qué
+mes es va al final de su año, hasta que lo nombres `2025-06 …` o pongas `mes: junio` en su `.txt`.
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
 
 ## License

@@ -114,19 +114,17 @@ over `pieces/<id>.md`, so a re-ingest never undoes them; clear a field and the o
 back. Every save rebuilds the site and is undone if the build refuses it. With `--publish` a
 save is committed and pushed; `--lock FILE` shares a lock with your ingest job.
 
-**Accounts.** `--users users.json` turns on a login (user name and password, PBKDF2 hashes,
-keep the file out of git). Nobody types a password for someone else:
+**Login.** One admin, one password, no sign-up. `--password-file admin.json` turns it on;
+set or change the password with
 
 ```sh
-python3 tools/admin.py --users users.json --invite ana --base-url https://admin.example
-# prints a one-time link (48 h) where ana picks her own password; it also resets a lost one
-python3 tools/admin.py --users users.json --remove-user ana
+python3 tools/admin.py --password-file admin.json --set-password   # asks twice
 ```
 
-Sessions last 30 days and end when the password changes; five wrong passwords lock a name
-for 15 minutes. Serve it over HTTPS (e.g. `tailscale serve --bg --https=8765
-http://127.0.0.1:8765`); `--require-tailscale-user` additionally limits it to people on your
-tailnet. Cross-site form posts are refused.
+It is stored as a PBKDF2 hash (keep the file out of git); changing it logs out every open
+session, and five wrong passwords lock the login for 15 minutes. Serve it over HTTPS (e.g.
+`tailscale serve --bg --https=8765 http://127.0.0.1:8765`); `--require-tailscale-user`
+additionally limits it to people on your tailnet. Cross-site form posts are refused.
 
 ## Build locally
 

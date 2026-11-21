@@ -12,19 +12,19 @@ clearing a field brings back the original. Every save rebuilds the site to check
 that would break the build is undone. With --publish, a save is also committed and pushed
 (git), so the site updates on its own.
 
-Accounts (--users FILE): user name and password, stored as PBKDF2 hashes in FILE (keep it
-out of git). Nobody types a password for someone else: `--invite NAME` prints a one-time
-link (valid 48 h) where that person picks their own; the same link resets a forgotten one.
-`--remove-user NAME` takes access away. Changing a password logs that user out everywhere.
-Without --users there is no login: then bind to localhost behind an authenticating proxy,
-e.g. `tailscale serve` with --require-tailscale-user (tagged servers carry no user). The two
-can be combined. Cross-site form posts are refused and the session cookie is SameSite=Strict.
+Login (--password-file FILE): one admin, one password, no sign-up. Set or change it with
+`admin.py --password-file FILE --set-password` (it asks twice; stored as a PBKDF2 hash, keep
+FILE out of git). Changing it logs out every open session. Without --password-file there is
+no login: then bind to localhost behind an authenticating proxy, e.g. `tailscale serve` with
+--require-tailscale-user (tagged servers carry no user). The two can be combined.
+Cross-site form posts are refused and the session cookie is SameSite=Strict.
 Year or month edits recompute the age when TRAZOS_BIRTHDATE is set (it is never written).
 Standard library only (Python 3.11+).
 """
 import argparse
 import datetime as dt
 import fcntl
+import getpass
 import hashlib
 import hmac
 import html
@@ -55,11 +55,8 @@ UI = {
            "site_title": "Título de la web", "artist": "Nombre de la artista", "lang": "Idioma",
            "rights": "Aviso de derechos (vacío = el de serie)", "protect": "Proteger (fuera de buscadores e IA)",
            "view": "Ver en la web", "back": "← Obras", "error": "No se guardó",
-           "edited": "editada", "untitled": "Sin título", "user": "Usuario", "password": "Contraseña",
-           "password2": "Repite la contraseña", "login": "Entrar", "logout": "Salir",
-           "bad_login": "Usuario o contraseña incorrectos.", "locked": "Demasiados intentos: espera 15 minutos.",
-           "welcome": "Hola, {user}. Elige tu contraseña (mínimo 10 caracteres).",
-           "bad_invite": "Este enlace ya se usó o caducó.", "mismatch": "Las contraseñas no coinciden o son cortas."},
+           "edited": "editada", "untitled": "Sin título", "password": "Contraseña", "login": "Entrar", "logout": "Salir",
+           "bad_login": "Contraseña incorrecta.", "locked": "Demasiados intentos: espera 15 minutos."},
     "en": {"pieces": "Pieces", "settings": "Settings", "save": "Save", "saved": "Saved.",
            "published": "Saved and published: the site updates in 1-2 minutes.",
            "title": "Title", "story": "Story", "technique": "Technique", "tags": "Tags (comma separated)",
@@ -68,11 +65,8 @@ UI = {
            "site_title": "Site title", "artist": "Artist's name", "lang": "Language",
            "rights": "Rights notice (empty = the default)", "protect": "Protect (no search engines, no AI)",
            "view": "View on the site", "back": "← Pieces", "error": "Not saved",
-           "edited": "edited", "untitled": "Untitled", "user": "User", "password": "Password",
-           "password2": "Repeat the password", "login": "Log in", "logout": "Log out",
-           "bad_login": "Wrong user or password.", "locked": "Too many attempts: wait 15 minutes.",
-           "welcome": "Hi, {user}. Choose your password (at least 10 characters).",
-           "bad_invite": "This link was already used or has expired.", "mismatch": "The passwords differ or are too short."},
+           "edited": "edited", "untitled": "Untitled", "password": "Password", "login": "Log in", "logout": "Log out",
+           "bad_login": "Wrong password.", "locked": "Too many attempts: wait 15 minutes."},
 }
 MONTHS = {"es": "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre",
           "en": "January February March April May June July August September October November December"}
@@ -100,99 +94,60 @@ def e(s):
     return html.escape(str(s), quote=True)
 
 
-class Users:
-    """FILE = {"secret": hex, "users": {name: "pbkdf2_sha256$iters$salt$hash"},
-    "invites": {sha256(token): {"user": name, "until": epoch}}}. Mode 0600, never in git."""
-    ITER, DAYS, NAME_RE = 600_000, 30, re.compile(r"^[a-z0-9._-]{1,32}$")
+class Login:
+    """One admin, one password. FILE = {"secret": hex, "hash": "pbkdf2_sha256$iters$salt$hash"},
+    mode 0600, never in git."""
+    ITER, DAYS = 600_000, 30
 
     def __init__(self, path):
-        self.path, self.fails, self.mutex = path, {}, threading.Lock()
+        self.path, self.fails = path, []
 
     def load(self):
-        if self.path.exists():
-            return json.loads(self.path.read_text(encoding="utf-8"))
-        return {"secret": secrets.token_hex(32), "users": {}, "invites": {}}
-
-    def save(self, d):
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
-        os.chmod(tmp, 0o600)
-        tmp.replace(self.path)
+        return json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
 
     @classmethod
     def digest(cls, pw, salt, iters=None):
         return hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), iters or cls.ITER).hex()
 
-    def set_password(self, name, pw):
-        with self.mutex:
-            d, salt = self.load(), secrets.token_hex(16)
-            d["users"][name] = f"pbkdf2_sha256${self.ITER}${salt}${self.digest(pw, salt)}"
-            self.save(d)
+    def set_password(self, pw):
+        # A new secret too: every session signed with the old one ends.
+        salt = secrets.token_hex(16)
+        d = {"secret": secrets.token_hex(32), "hash": f"pbkdf2_sha256${self.ITER}${salt}${self.digest(pw, salt)}"}
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(self.path)
 
-    def remove(self, name):
-        with self.mutex:
-            d = self.load()
-            found = d["users"].pop(name, None) is not None
-            d["invites"] = {k: v for k, v in d.get("invites", {}).items() if v["user"] != name}
-            self.save(d)
-            return found
-
-    def invite(self, name):
-        with self.mutex:
-            d, token = self.load(), secrets.token_urlsafe(24)
-            d.setdefault("invites", {})[hashlib.sha256(token.encode()).hexdigest()] = \
-                {"user": name, "until": int(time.time()) + 48 * 3600}
-            self.save(d)
-            return token
-
-    def invited(self, token, consume=False):
-        with self.mutex:
-            d = self.load()
-            key = hashlib.sha256(token.encode()).hexdigest()
-            inv = d.get("invites", {}).get(key)
-            if not inv or inv["until"] < time.time():
-                return None
-            if consume:
-                d["invites"].pop(key)
-                self.save(d)
-            return inv["user"]
-
-    def check(self, name, pw):
-        """(ok, locked). Five failures for a name in 15 minutes lock it for the rest of them."""
+    def check(self, pw):
+        """(ok, locked). Five wrong passwords in 15 minutes lock the login for the rest of them."""
         now = time.time()
-        recent = [t for t in self.fails.get(name, []) if now - t < 900]
-        if len(recent) >= 5:
+        self.fails = [t for t in self.fails if now - t < 900]
+        if len(self.fails) >= 5:
             return False, True
-        rec = self.load()["users"].get(name)
-        if rec:
-            _, iters, salt, h = rec.split("$")
+        d = self.load()
+        ok = False
+        if d.get("hash"):
+            _, iters, salt, h = d["hash"].split("$")
             ok = hmac.compare_digest(self.digest(pw, salt, int(iters)), h)
-        else:
-            self.digest(pw, "00" * 16)  # same cost whether or not the user exists
-            ok = False
         if not ok:
-            self.fails[name] = recent + [now]
+            self.fails.append(now)
             time.sleep(1)
         return ok, False
 
-    def _sig(self, d, name, until):
-        # The password hash is in the key: changing a password ends that user's sessions.
-        key = (d["secret"] + d["users"][name]).encode()
-        return hmac.new(key, f"{name}|{until}".encode(), hashlib.sha256).hexdigest()
+    def _sig(self, d, until):
+        return hmac.new((d["secret"] + d["hash"]).encode(), f"admin|{until}".encode(), hashlib.sha256).hexdigest()
 
-    def cookie(self, name):
-        d, until = self.load(), int(time.time()) + self.DAYS * 86400
-        return f"{name}|{until}|{self._sig(d, name, until)}"
+    def cookie(self):
+        until = int(time.time()) + self.DAYS * 86400
+        return f"{until}|{self._sig(self.load(), until)}"
 
-    def who(self, value):
+    def valid(self, value):
         try:
-            name, until, sig = value.split("|")
+            until, sig = value.split("|")
             d = self.load()
-            if int(until) > time.time() and name in d["users"] and hmac.compare_digest(sig, self._sig(d, name, until)):
-                return name
+            return int(until) > time.time() and hmac.compare_digest(sig, self._sig(d, until))
         except (ValueError, KeyError):
-            pass
-        return None
+            return False
 
 
 def age_label(year, month, birth):
@@ -205,7 +160,7 @@ def age_label(year, month, birth):
 
 
 class Admin:
-    def __init__(self, root, publish, lock, site_url, users=None):
+    def __init__(self, root, publish, lock, site_url, users=None):  # users: a Login, or None
         self.root, self.publish, self.lock, self.site_url = root, publish, lock, site_url.rstrip("/")
         self.users, self.ctx = users, threading.local()
         self.pieces, self.edits = root / "pieces", root / "edits"
@@ -352,30 +307,18 @@ class Admin:
 </header><main>{body}</main></body></html>"""
 
     def logout_form(self):
-        user = getattr(self.ctx, "user", None)
-        if not (self.users and user):
+        if not (self.users and getattr(self.ctx, "user", None)):
             return ""
-        return (f'<form class="logout" method="post" action="/logout"><small>{e(user)}</small> '
-                f'<button>{self.ui()["logout"]}</button></form>')
+        return f'<form class="logout" method="post" action="/logout"><button>{self.ui()["logout"]}</button></form>'
 
     def login(self, nxt, error=""):
         t = self.ui()
         err = f'<p class="msg bad">{e(error)}</p>' if error else ""
         body = f"""<h1>{t['login']}</h1>{err}<form method="post" action="/login">
 <input type="hidden" name="next" value="{e(nxt)}">
-<label>{t['user']}<input type="text" name="user" autocomplete="username" autocapitalize="none" required></label>
-<label>{t['password']}<input type="password" name="password" autocomplete="current-password" required></label>
+<input type="text" name="user" value="admin" autocomplete="username" hidden>
+<label>{t['password']}<input type="password" name="password" autocomplete="current-password" required autofocus></label>
 <button>{t['login']}</button></form>"""
-        return self.page(t["login"], body)
-
-    def invite_page(self, user, error=""):
-        t = self.ui()
-        err = f'<p class="msg bad">{e(error)}</p>' if error else ""
-        body = f"""<h1>{t['welcome'].format(user=e(user))}</h1>{err}<form method="post">
-<input type="text" name="user" value="{e(user)}" autocomplete="username" hidden>
-<label>{t['password']}<input type="password" name="password" minlength="10" autocomplete="new-password" required></label>
-<label>{t['password2']}<input type="password" name="password2" minlength="10" autocomplete="new-password" required></label>
-<button>{t['save']}</button></form>"""
         return self.page(t["login"], body)
 
     def msg(self, q):
@@ -460,7 +403,7 @@ def handler(admin, require_ts):
             for part in self.headers.get("Cookie", "").split(";"):
                 k, _, v = part.strip().partition("=")
                 if k == "trazos_admin":
-                    return users.who(v)
+                    return "admin" if users.valid(v) else None
             return None
 
         def cookie_header(self, value, max_age):
@@ -475,7 +418,7 @@ def handler(admin, require_ts):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")  # invite tokens never leak
+            self.send_header("Referrer-Policy", "no-referrer")
             if cookie:
                 self.send_header("Set-Cookie", cookie)
             self.end_headers()
@@ -508,9 +451,6 @@ def handler(admin, require_ts):
                 return self.send((build.ASSETS / "style.css").read_bytes(), "text/css")
             if users and u.path == "/login":
                 return self.send(admin.login(q.get("next", ["/"])[0]))
-            if users and len(parts) == 2 and parts[0] == "invite":
-                who = users.invited(parts[1])
-                return self.send(admin.invite_page(who) if who else admin.login("/", admin.ui()["bad_invite"]))
             if not self.gate(u.path):
                 return
             if u.path == "/":
@@ -542,25 +482,14 @@ def handler(admin, require_ts):
             path, parts = urlparse(self.path).path, urlparse(self.path).path.strip("/").split("/")
             t = admin.ui()
             if users and path == "/login":
-                name, nxt = form.get("user", "").strip().lower(), form.get("next", "/")
+                nxt = form.get("next", "/")
                 nxt = nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"
-                ok, locked = users.check(name, form.get("password", ""))
+                ok, locked = users.check(form.get("password", ""))
                 if not ok:
                     return self.send(admin.login(nxt, t["locked"] if locked else t["bad_login"]), code=401)
-                return self.redirect(nxt, self.cookie_header(users.cookie(name), Users.DAYS * 86400))
+                return self.redirect(nxt, self.cookie_header(users.cookie(), Login.DAYS * 86400))
             if users and path == "/logout":
                 return self.redirect("/login", self.cookie_header("", 0))
-            if users and len(parts) == 2 and parts[0] == "invite":
-                who = users.invited(parts[1])
-                if not who:
-                    return self.send(admin.login("/", t["bad_invite"]), code=410)
-                pw = form.get("password", "")
-                if len(pw) < 10 or pw != form.get("password2"):
-                    return self.send(admin.invite_page(who, t["mismatch"]), code=400)
-                if not users.invited(parts[1], consume=True):
-                    return self.send(admin.login("/", t["bad_invite"]), code=410)
-                users.set_password(who, pw)
-                return self.redirect("/", self.cookie_header(users.cookie(who), Users.DAYS * 86400))
             if not self.gate(path):
                 return
             if path == "/settings":
@@ -585,28 +514,25 @@ def main():
     ap.add_argument("--lock", type=Path, help="flock this file while committing (share it with the ingest)")
     ap.add_argument("--require-tailscale-user", action="store_true")
     ap.add_argument("--site-url", default="", help="public site, for 'view' links")
-    ap.add_argument("--users", type=Path, help="accounts file (JSON, mode 0600, never in git)")
-    ap.add_argument("--invite", metavar="NAME", help="print a one-time link for NAME to set a password, and exit")
-    ap.add_argument("--remove-user", metavar="NAME", help="remove NAME's access, and exit")
-    ap.add_argument("--base-url", default="", help="where the admin is reached, for --invite links")
+    ap.add_argument("--password-file", type=Path, help="turns on the login (JSON, mode 0600, never in git)")
+    ap.add_argument("--set-password", action="store_true", help="ask for the admin password, store it, and exit")
     a = ap.parse_args()
-    users = Users(a.users) if a.users else None
-    if a.invite or a.remove_user:
+    users = Login(a.password_file) if a.password_file else None
+    if a.set_password:
         if not users:
-            ap.error("--invite and --remove-user need --users")
-        if a.remove_user:
-            print("removed" if users.remove(a.remove_user) else "no such user")
-            return
-        if not Users.NAME_RE.match(a.invite):
-            ap.error("user names are lowercase letters, digits, '.', '_' or '-'")
-        print(f"{a.base_url.rstrip('/') or f'http://{a.bind}:{a.port}'}/invite/{users.invite(a.invite)}")
+            ap.error("--set-password needs --password-file")
+        pw = getpass.getpass("Admin password (10+ characters): ")
+        if len(pw) < 10 or pw != getpass.getpass("Again: "):
+            sys.exit("not changed: too short, or the two differ")
+        users.set_password(pw)
+        print("password set; open sessions have been logged out")
         return
     if not a.content:
         ap.error("CONTENT_DIR is required")
     root = a.content.resolve()
     build.load_config(root)  # fail early on a bad content folder
-    if users and not users.path.exists():
-        users.save(users.load())  # creates the secret; still nobody can log in until invited
+    if users and not users.load().get("hash"):
+        print("trazos admin: no password yet: run with --set-password; until then nobody can log in", flush=True)
     admin = Admin(root, a.publish, a.lock, a.site_url, users)
     print(f"trazos admin: http://{a.bind}:{a.port}/ -> {root}{' (login required)' if users else ''}", flush=True)
     ThreadingHTTPServer((a.bind, a.port), handler(admin, a.require_tailscale_user)).serve_forever()

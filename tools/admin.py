@@ -27,14 +27,16 @@ import os
 import subprocess
 import sys
 import time
+import threading
 import tomllib
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import build  # noqa: E402  (the engine: same parsing and validation as the real build)
 
+WRITE = threading.Lock()  # reads run in parallel (thumbnails); saves one at a time
 EDITABLE = ("title", "story", "technique", "tags", "favourite", "year", "month")
 UI = {
     "es": {"pieces": "Obras", "settings": "Ajustes", "save": "Guardar", "saved": "Guardado.",
@@ -359,10 +361,12 @@ def handler(admin, require_ts):
             form = {k: v[0] for k, v in parse_qs(self.rfile.read(n).decode("utf-8"), keep_blank_values=True).items()}
             path, parts = urlparse(self.path).path, urlparse(self.path).path.strip("/").split("/")
             if path == "/settings":
-                ok, info = admin.save_settings(form)
+                with WRITE:
+                    ok, info = admin.save_settings(form)
             elif len(parts) == 2 and parts[0] == "piece" and build.ID_RE.match(parts[1]) \
                     and (admin.pieces / f"{parts[1]}.md").exists():
-                ok, info = admin.save_piece(parts[1], form)
+                with WRITE:
+                    ok, info = admin.save_piece(parts[1], form)
             else:
                 return self.send_error(404)
             self.redirect(f"{path}?ok={quote(info or 'saved')}" if ok else f"{path}?err={quote(info)}")
@@ -383,7 +387,7 @@ def main():
     build.load_config(root)  # fail early on a bad content folder
     admin = Admin(root, a.publish, a.lock, a.site_url)
     print(f"trazos admin: http://{a.bind}:{a.port}/ -> {root}", flush=True)
-    HTTPServer((a.bind, a.port), handler(admin, a.require_tailscale_user)).serve_forever()
+    ThreadingHTTPServer((a.bind, a.port), handler(admin, a.require_tailscale_user)).serve_forever()
 
 
 if __name__ == "__main__":

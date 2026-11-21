@@ -1,16 +1,83 @@
-:root { --bg: #fbf8f3; --fg: #2b2622; --muted: #7a6f66; --accent: #c4552f; --card: #fff; }
-@media (prefers-color-scheme: dark) { :root { --bg: #1d1a17; --fg: #eee6dd; --muted: #a59a90; --accent: #f08a62; --card: #2a2622; } }
+/* trazos: "paper and crayons". A warm paper background, pencil-grey ink and five crayon
+   colours. The art is the colour; the frame stays quiet. Text colours meet WCAG AA on --bg. */
+:root {
+  --bg: #faf6ee;        /* drawing paper */
+  --card: #fffdf8;
+  --fg: #2e2a26;        /* graphite */
+  --muted: #6f655c;
+  --line: #e8e0d2;
+  --red: #c2462a;       /* crayon vermilion */
+  --yellow: #e9a91f;    /* wax yellow (fills only, never text) */
+  --blue: #2f6fa8;      /* sky blue */
+  --green: #3f8a4f;     /* leaf green */
+  --violet: #7d4a92;    /* plum */
+  --accent: var(--red);
+  --shadow: 0 1px 2px rgba(60, 45, 30, .08), 0 4px 14px rgba(60, 45, 30, .08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1a17;      /* chalkboard brown-black */
+    --card: #26231f;
+    --fg: #f1ebe2;
+    --muted: #b1a597;
+    --line: #3a352f;
+    --red: #f07a5a;
+    --yellow: #f2c14e;
+    --blue: #7db4e6;
+    --green: #7fc48c;
+    --violet: #c597d8;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .3);
+  }
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.55 system-ui, sans-serif; }
-header { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: baseline; justify-content: space-between; padding: 1rem 16px; max-width: 1100px; margin: 0 auto; }
-.home { font-weight: 700; font-size: 1.25rem; color: var(--fg); text-decoration: none; }
-nav a { margin-right: 1rem; color: var(--accent); text-decoration: none; }
-main { max-width: 1100px; margin: 0 auto; padding: 0 16px 3rem; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+h1, h2, .home { font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; letter-spacing: -.01em; }
+a { color: var(--accent); }
+
+/* Header with a crayon stripe underneath */
+header { max-width: 1100px; margin: 0 auto; padding: 1.25rem 16px .9rem; display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: baseline; justify-content: space-between; }
+body > header { position: relative; }
+body > header::after {
+  content: ""; position: absolute; left: 16px; right: 16px; bottom: 0; height: 5px; border-radius: 99px;
+  background: linear-gradient(90deg, var(--red) 0 20%, var(--yellow) 20% 40%, var(--blue) 40% 60%, var(--green) 60% 80%, var(--violet) 80% 100%);
+  opacity: .85;
+}
+.home { font-weight: 800; font-size: 1.4rem; color: var(--fg); text-decoration: none; }
+nav a { margin-right: 1.1rem; color: var(--fg); text-decoration: none; font-weight: 500; border-bottom: 2px solid transparent; }
+nav a:hover, nav a:focus-visible { border-bottom-color: var(--accent); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 16px 3rem; }
+h2 { margin: 2.2rem 0 1rem; font-size: 1.6rem; }
+section:nth-of-type(5n+1) h2 { text-decoration: underline var(--red) 4px; text-underline-offset: 6px; }
+section:nth-of-type(5n+2) h2 { text-decoration: underline var(--blue) 4px; text-underline-offset: 6px; }
+section:nth-of-type(5n+3) h2 { text-decoration: underline var(--green) 4px; text-underline-offset: 6px; }
+section:nth-of-type(5n+4) h2 { text-decoration: underline var(--violet) 4px; text-underline-offset: 6px; }
+section:nth-of-type(5n+5) h2 { text-decoration: underline var(--yellow) 4px; text-underline-offset: 6px; }
 h2 small, .facts, .empty, .tags small { color: var(--muted); font-weight: 400; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1rem; }
-.card { background: var(--card); border-radius: 10px; overflow: hidden; color: var(--fg); text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-.card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
-.card span { display: block; padding: .4rem .6rem; font-size: .9rem; }
-.piece { max-width: 760px; margin: 0 auto; }
-.piece img { width: 100%; height: auto; border-radius: 10px; }
-.tags a { display: inline-block; margin: 0 .5rem .5rem 0; padding: .15rem .6rem; border-radius: 99px; background: var(--card); color: var(--accent); text-decoration: none; }
+
+/* Grid of pieces: paper cards, slightly askew like drawings pinned to a wall */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1.25rem; }
+.card { background: var(--card); border-radius: 6px; padding: 8px 8px 0; color: var(--fg); text-decoration: none; box-shadow: var(--shadow); transition: transform .15s ease; }
+.card:nth-child(3n+1) { transform: rotate(-.6deg); }
+.card:nth-child(3n+2) { transform: rotate(.5deg); }
+.card:hover, .card:focus-visible { transform: rotate(0) translateY(-3px); }
+.card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; border-radius: 3px; background: var(--line); }
+.card span { display: block; padding: .45rem .2rem .55rem; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .card, .card:nth-child(n) { transform: none; transition: none; } }
+
+/* One piece */
+.piece { max-width: 780px; margin: 0 auto; }
+.piece img { width: 100%; height: auto; border-radius: 6px; background: var(--card); padding: 10px; box-shadow: var(--shadow); }
+.piece h1 { margin: 1.4rem 0 .2rem; font-size: 2rem; }
+.piece p { max-width: 65ch; }
+
+/* Tags as crayon-coloured pills */
+.tags a { display: inline-block; margin: 0 .5rem .6rem 0; padding: .2rem .75rem; border-radius: 99px; background: var(--card); color: var(--fg); text-decoration: none; border: 2px solid var(--red); }
+.tags a:nth-child(5n+2) { border-color: var(--blue); }
+.tags a:nth-child(5n+3) { border-color: var(--green); }
+.tags a:nth-child(5n+4) { border-color: var(--violet); }
+.tags a:nth-child(5n+5) { border-color: var(--yellow); }
+.tags a:hover { background: var(--line); }
+
+:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }

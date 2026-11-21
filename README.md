@@ -8,8 +8,14 @@ with the story in the artist's own words.
 [Live demo](https://nyakojiru.github.io/trazos/) · [Español](#en-español)
 
 - **Anonymous by default.** The site shows one first name or pseudonym. Ages and
-  years, never birthdays or places. `noindex` and a `robots.txt` keep search engines
-  and AI crawlers out.
+  years, never birthdays or places.
+- **Protected from crawlers by default** (`protect = true`). Every machine-readable "no"
+  there is: `noindex`/`noai`/`noimageai` meta tags, a `robots.txt` that names ~30 AI and
+  image crawlers one by one (some only obey their own group), Spawning's `ai.txt`, the
+  W3C TDMRep opt-out (`tdm-reservation` meta and `/.well-known/tdmrep.json`), and a rights
+  notice on every page reserving text-and-data mining under Art. 4(3) of the EU DSM
+  Directive. Honest limit: these are requests plus a legal reservation. A static host
+  cannot *block* a rude bot; for that, put a proxy with bot blocking (e.g. Cloudflare) in front.
 - **Nothing leaks from the photo.** `tools/prepare.sh` strips EXIF/GPS/camera data
   and OCRs the image, which catches printed text such as a school stamp. OCR does
   **not** read a child's handwriting, so a signed surname or a dedication is only
@@ -24,7 +30,8 @@ with the story in the artist's own words.
 ## Start your archive
 
 1. Create a repo and copy `example/` into it (it includes the Pages workflow).
-2. Edit `trazos.toml`: `artist`, `lang` (`en` or `es`), `noindex`.
+2. Edit `trazos.toml`: `artist`, `lang` (`en` or `es`), `protect` (default `true`), and
+   optionally `rights` to replace the default notice.
 3. Delete the demo pieces, add your own (below) and push. In the repo settings, set
    Pages to deploy from **GitHub Actions**. For a custom domain, add `site/CNAME`.
 
@@ -103,7 +110,9 @@ los convierte en una web estática: una línea de tiempo por año y edad, etique
 favoritos y, en cada obra, la historia contada por quien la hizo.
 
 Es anónimo por defecto: solo un nombre de pila o un seudónimo, con edades y años y
-nunca lugares, y fuera de buscadores y rastreadores de IA. Quita los metadatos de las
+nunca lugares. Y viene protegido por defecto: fuera de buscadores y rastreadores de IA
+(robots.txt con ~30 bots por nombre, `ai.txt`, TDMRep) y con una reserva de derechos de
+minería de datos en cada página (art. 4.3 de la Directiva (UE) 2019/790). Quita los metadatos de las
 fotos y lee el texto de la imagen para que revises que no se vea un apellido o el
 nombre de un colegio. El build se niega a publicar una imagen con EXIF. Sin scripts ni
 rastreadores. Los originales se quedan contigo y en git solo entran las copias para la web.

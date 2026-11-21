@@ -81,3 +81,7 @@ h2 small, .facts, .empty, .tags small { color: var(--muted); font-weight: 400; }
 .tags a:hover { background: var(--line); }
 
 :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+
+/* Rights notice: quiet, but there on every page */
+footer { max-width: 1100px; margin: 0 auto; padding: 1.5rem 16px 2.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
+footer p { max-width: 75ch; margin: 0; }

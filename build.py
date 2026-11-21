@@ -34,6 +34,9 @@ STRINGS = {
         "no_tags": "Sin etiquetas todavía.", "no_favs": "Sin favoritos todavía.",
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
         "ages_many": "{list} años", "default_title": "Las obras de {artist}",
+        "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
+                  "para minería de textos y datos o para entrenar inteligencia artificial "
+                  "(art. 4.3 de la Directiva (UE) 2019/790).",
     },
     "en": {
         "by_year": "By year", "tags": "Tags", "favourites": "Favourites",
@@ -41,8 +44,21 @@ STRINGS = {
         "no_tags": "No tags yet.", "no_favs": "No favourites yet.",
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
         "ages_many": "ages {list}", "default_title": "The art of {artist}",
+        "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
+                  "mining or to train artificial intelligence, is not permitted "
+                  "(Art. 4(3) of Directive (EU) 2019/790).",
     },
 }
+# Crawlers that only obey a robots.txt group naming them. `User-agent: *` already covers the
+# rest; naming them costs nothing and closes that gap. AI training and AI search first.
+BLOCKED_BOTS = (
+    "GPTBot", "ChatGPT-User", "OAI-SearchBot", "ClaudeBot", "Claude-User", "Claude-SearchBot",
+    "anthropic-ai", "Google-Extended", "GoogleOther", "Applebot-Extended", "CCBot", "PerplexityBot",
+    "Perplexity-User", "Bytespider", "meta-externalagent", "meta-externalfetcher", "FacebookBot",
+    "Amazonbot", "cohere-ai", "cohere-training-data-crawler", "Diffbot", "DuckAssistBot",
+    "MistralAI-User", "YouBot", "Timpibot", "ImagesiftBot", "Omgilibot", "img2dataset",
+    "AI2Bot", "PetalBot", "Googlebot-Image", "bingbot", "Googlebot",
+)
 # Page slugs stay ASCII and language-neutral so URLs never change with `lang`.
 TAGS_PAGE, FAVS_PAGE = "tags.html", "favourites.html"
 
@@ -61,7 +77,9 @@ def load_config(root):
     cfg.setdefault("lang", "es")
     if cfg["lang"] not in STRINGS:
         fail(f"trazos.toml: lang must be one of {', '.join(STRINGS)}")
-    cfg.setdefault("noindex", True)
+    # `protect` (default on) keeps the site out of search engines and AI crawlers and reserves
+    # text-and-data-mining rights. `noindex` is its old name and still works.
+    cfg.setdefault("protect", cfg.get("noindex", True))
     t = STRINGS[cfg["lang"]]
     cfg.setdefault("title", t["default_title"].format(artist=cfg["artist"]))
     return cfg
@@ -156,9 +174,12 @@ class Site:
 
     def page(self, title, body, depth=0):
         up = "../" * depth
-        robots = ('<meta name="robots" content="noindex, noimageindex, noai, noimageai">\n'
-                  if self.cfg["noindex"] else "")
         t = self.t
+        robots = ('<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">\n'
+                  '<meta name="tdm-reservation" content="1">\n'
+                  if self.cfg["protect"] else "")
+        rights = self.cfg.get("rights") or (t["rights"].format(artist=self.cfg["artist"]) if self.cfg["protect"] else "")
+        footer = f'<footer><p>{e(rights)}</p></footer>\n' if rights else ""
         return f"""<!doctype html>
 <html lang="{e(self.cfg['lang'])}">
 <head>
@@ -178,7 +199,7 @@ class Site:
 <main>
 {body}
 </main>
-</body>
+{footer}</body>
 </html>
 """
 
@@ -195,6 +216,17 @@ class Site:
         return '<div class="grid">' + "".join(cards) + "</div>"
 
 
+def protect(out):
+    """Every machine-readable 'no' there is. Polite bots obey; the rest meet the legal reservation."""
+    named = "".join(f"User-agent: {b}\nDisallow: /\n\n" for b in BLOCKED_BOTS)
+    (out / "robots.txt").write_text(named + "User-agent: *\nDisallow: /\n")
+    # Spawning's ai.txt, read by image dataset tools (img2dataset honours it).
+    (out / "ai.txt").write_text("User-Agent: *\nDisallow: /\nDisallow: *\n")
+    # W3C TDMRep: the machine-readable form of the EU text-and-data-mining opt-out.
+    (out / ".well-known").mkdir(exist_ok=True)
+    (out / ".well-known" / "tdmrep.json").write_text('[{"location": "/*", "tdm-reservation": 1}]\n')
+
+
 def build(root):
     root = root.resolve()
     cfg = load_config(root)
@@ -209,8 +241,8 @@ def build(root):
         (out / d).mkdir(parents=True)
     shutil.copy(ASSETS / "style.css", out / "style.css")
     (out / ".nojekyll").write_text("")
-    if cfg["noindex"]:
-        (out / "robots.txt").write_text("User-agent: *\nDisallow: /\n")
+    if cfg["protect"]:
+        protect(out)
     for p in pieces:
         for suffix in (".jpg", "-thumb.jpg"):
             shutil.copy(pieces_dir / f"{p['id']}{suffix}", out / "img" / f"{p['id']}{suffix}")

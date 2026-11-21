@@ -101,6 +101,23 @@ The story in the artist's words. Blank lines separate paragraphs.
 Only `id` and `year` are required. `month` is 1–12 (leave it out when you don't know it);
 `age` may be a range (`4-5`); `order` sorts pieces inside a month (newest first).
 
+## Admin mode
+
+```sh
+python3 tools/admin.py path/to/your-archive [--publish] [--require-tailscale-user]
+```
+
+A small editor at `http://127.0.0.1:8765/`, standard library only: change the title, story,
+technique, tags, favourite, year and month of any piece, and the basic settings (site title,
+artist, language, rights notice, protection). Edits are stored in `edits/<id>.json` and win
+over `pieces/<id>.md`, so a re-ingest never undoes them; clear a field and the original comes
+back. Every save rebuilds the site and is undone if the build refuses it. With `--publish` a
+save is committed and pushed; `--lock FILE` shares a lock with your ingest job.
+
+It has no accounts: keep it on localhost and put an authenticating proxy in front, e.g.
+`tailscale serve --bg --https=8765 http://127.0.0.1:8765` plus `--require-tailscale-user`
+(only people logged in to your tailnet get in). Cross-site form posts are refused.
+
 ## Build locally
 
 ```sh
@@ -129,6 +146,7 @@ carpeta se publica; lo que metes en una subcarpeta, no. Recorta la hoja sola y a
 El mes no se muestra: solo ordena cada año de diciembre a enero. Lo que no sabemos de qué
 mes es va al final de su año, hasta que lo nombres `2025-06 …` o pongas `mes: junio` en su `.txt`.
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
+Para editar títulos, historias y ajustes desde el navegador, `tools/admin.py` (modo admin, arriba).
 
 ## License
 

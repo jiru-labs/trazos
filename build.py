@@ -9,10 +9,12 @@ CONTENT_DIR holds:
   pieces/<id>.jpg        web version (long side 1600 px, metadata stripped)
   pieces/<id>-thumb.jpg  grid version (long side 600 px)
   site/                  optional extra static files (CNAME, favicon...), copied last
+  edits/<id>.json        optional hand edits from tools/admin.py; they win over pieces/<id>.md
 
 Output goes to CONTENT_DIR/public. Standard library only (Python 3.11+).
 """
 import html
+import json
 import re
 import shutil
 import sys
@@ -117,6 +119,17 @@ def parse(path, pieces_dir):
         if key not in FIELDS:
             fail(f"{path.name}: unknown field {key!r}")
         meta[key] = value
+    body = m.group(2)
+    # Hand edits (tools/admin.py) win over the ingested sidecar, which a re-ingest rewrites.
+    edits = pieces_dir.parent / "edits" / f"{path.stem}.json"
+    if edits.exists():
+        for key, value in json.loads(edits.read_text(encoding="utf-8")).items():
+            if key == "story":
+                body = value
+            elif key in FIELDS and key not in ("id", "order"):
+                meta[key] = str(value)
+            else:
+                fail(f"{edits.name}: unknown field {key!r}")
     for key in ("id", "year"):
         if not meta.get(key):
             fail(f"{path.name}: {key} is required")
@@ -148,7 +161,7 @@ def parse(path, pieces_dir):
     meta["order"] = int(meta.get("order") or 0)
     meta["tags"] = [t.strip().lower() for t in meta.get("tags", "").split(",") if t.strip()]
     meta["favourite"] = meta.get("favourite", "").lower() in ("yes", "sí", "si", "true")
-    meta["story"] = [p.strip() for p in m.group(2).strip().split("\n\n") if p.strip()]
+    meta["story"] = [p.strip() for p in body.strip().split("\n\n") if p.strip()]
     return meta
 
 

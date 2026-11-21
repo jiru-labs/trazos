@@ -85,3 +85,24 @@ h2 small, .facts, .empty, .tags small { color: var(--muted); font-weight: 400; }
 /* Rights notice: quiet, but there on every page */
 footer { max-width: 1100px; margin: 0 auto; padding: 1.5rem 16px 2.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
 footer p { max-width: 75ch; margin: 0; }
+
+/* Months: a calendar strip under each year, then one block per month, newest first.
+   Season colours mark the strip; months with no art stay as faint pencil. */
+.months { display: flex; flex-wrap: wrap; gap: .35rem; margin: -.3rem 0 1.4rem; }
+.months a, .months span { min-width: 2.6rem; padding: .15rem .45rem; border-radius: 99px; text-align: center;
+  font-size: .85rem; margin: 0; }
+.months span { color: var(--muted); opacity: .55; border: 2px dashed var(--line); }
+.months a { color: var(--fg); background: var(--card); border: 2px solid var(--season, var(--line)); font-weight: 600; box-shadow: var(--shadow); }
+.months a:hover, .months a:focus-visible { transform: translateY(-2px); border-bottom-color: var(--season, var(--line)); }
+.winter { --season: var(--blue); }
+.spring { --season: var(--green); }
+.summer { --season: var(--yellow); }
+.autumn { --season: var(--red); }
+.unknown { --season: var(--violet); }
+.month { margin: 0 0 2rem; padding-left: .9rem; border-left: 4px solid var(--season, var(--line)); }
+.month h3 { margin: 0 0 .8rem; font-size: 1.2rem; font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; }
+.month h3 small { color: var(--muted); font-weight: 400; font-size: .85rem; }
+.month.unknown { border-left-style: dashed; }
+.month .note { margin: -.4rem 0 .9rem; color: var(--muted); font-size: .92rem; font-style: italic; }
+.season { font-size: .95em; }
+.facts a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }

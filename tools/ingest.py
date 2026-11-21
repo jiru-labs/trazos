@@ -14,7 +14,13 @@ File name convention (everything optional):
     "<date> <anything> - <title>.<ext>"   e.g. "2025-06 Dibujo - el gato.heic"
   <date> is YYYY-MM-DD, YYYY-MM or YYYY. Without it, the photo's own date (EXIF) is used.
   A sibling "<same name>.txt" holds the story; its first lines may set fields:
-    técnica: ceras / etiquetas: gato, casa / favorito: sí / año: 2025
+    técnica: ceras / etiquetas: gato, casa / favorito: sí / año: 2025 / mes: junio
+
+Month: a piece only gets one when the date says so honestly. "YYYY-MM" in the name and a
+`mes:` line always count. A full date (a camera's) counts unless SESSION_MIN or more pieces
+share that same day: that is a photo session of older work, so the day says when it was
+photographed, not when it was made. Those pieces, and any dated only by `año:` or by the
+file's mtime, stay "without month", and their age is computed from the year alone.
 
 Images are decoded (HEIC too), turned upright, cropped to the sheet of paper when one is
 found (OpenCV), resized to 1600/600 px and written as JPEG WITHOUT any metadata.
@@ -42,10 +48,25 @@ register_heif_opener()
 
 IMAGE_EXT = {".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp"}
 NAME_RE = re.compile(r"^(?P<date>\d{4}(?:-\d{2}(?:-\d{2})?)?)?\s*(?P<rest>.*?)$")
-FIELD_RE = re.compile(r"^\s*(técnica|tecnica|technique|etiquetas|tags|favorito|favourite|año|year)\s*:\s*(.*)$", re.I)
+FIELD_RE = re.compile(r"^\s*(técnica|tecnica|technique|etiquetas|tags|favorito|favourite|año|year|mes|month)\s*:\s*(.*)$", re.I)
 FIELD_MAP = {"técnica": "technique", "tecnica": "technique", "technique": "technique",
              "etiquetas": "tags", "tags": "tags", "favorito": "favourite", "favourite": "favourite",
-             "año": "year", "year": "year"}
+             "año": "year", "year": "year", "mes": "month", "month": "month"}
+SESSION_MIN = 6  # this many pieces on one exact day = a photo session of older work
+MONTHS = {name: i + 1 for names in (
+    "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre",
+    "january february march april may june july august september october november december")
+    for i, name in enumerate(names.split())}
+MONTHS["setiembre"] = 9
+
+
+def month_of(value):
+    """'6', '06', 'junio', 'Jun', 'june' -> 6; anything else -> None."""
+    v = value.strip().lower()
+    if v.isdigit():
+        return int(v) if 1 <= int(v) <= 12 else None
+    hits = {m for name, m in MONTHS.items() if len(v) >= 3 and name.startswith(v)}
+    return hits.pop() if len(hits) == 1 else None
 
 
 # ---------- image pipeline ----------
@@ -182,9 +203,12 @@ def age_label(date, birth):
     return str(a) if a == b else f"{a}–{b}"
 
 
-def sidecar(pid, year, age, title, fields, story, order):
+def sidecar(pid, year, month, age, title, fields, story, order):
     fav = fields.get("favourite", "").lower() in ("sí", "si", "yes", "true")
-    lines = ["---", f"id: {pid}", f"year: {year}", f"order: {order}"]
+    lines = ["---", f"id: {pid}", f"year: {year}"]
+    if month:
+        lines.append(f"month: {month}")
+    lines.append(f"order: {order}")
     if age:
         lines.append(f"age: {age}")
     if fields.get("technique"):
@@ -252,18 +276,33 @@ def main():
         seen.add(h)
         name_date, title = parse_name(p)
         fields, story = read_txt(p)
-        date = fields.get("year") or name_date or photo_date(p) or dt.date.fromtimestamp(st.st_mtime).isoformat()
-        entries.append((h, p, sig, date, title, fields, story))
+        exif = None if fields.get("year") or name_date else photo_date(p)
+        date = fields.get("year") or name_date or exif or dt.date.fromtimestamp(st.st_mtime).isoformat()
+        # Only a date the name or the photo gave can carry a month; the file's mtime cannot.
+        trusted = not fields.get("year") and bool(name_date or exif)
+        entries.append((h, p, sig, date, title, fields, story, trusted))
+
+    sessions = {d for d in {e[3] for e in entries}
+                if len(d) == 10 and sum(e[3] == d and e[7] for e in entries) >= SESSION_MIN}
 
     # Stable ordering inside a year: by date, then name. Only the ordinal is published.
     entries.sort(key=lambda e: (e[3], e[1].name))
     per_year = {}
-    for h, p, sig, date, title, fields, story in entries:
+    for h, p, sig, date, title, fields, story, trusted in entries:
         year = int(date[:4])
         per_year[year] = per_year.get(year, 0) + 1
         prev = state.get(h)
         pid = prev["id"] if prev else h[:10]
-        md = sidecar(pid, year, age_label(date, birth), title, fields, story, per_year[year])
+        if fields.get("month"):
+            month = month_of(fields["month"])
+            if not month:
+                print(f"ingest: {p.name}: mes {fields['month']!r} not understood; left without month", file=sys.stderr)
+            when = date if month and date[5:7] == f"{month:02d}" else (f"{year}-{month:02d}" if month else str(year))
+        elif trusted and len(date) >= 7 and date not in sessions:
+            month, when = int(date[5:7]), date
+        else:
+            month, when = None, str(year)
+        md = sidecar(pid, year, month, age_label(when, birth), title, fields, story, per_year[year])
         md_path = pieces / f"{pid}.md"
         image_missing = not (pieces / f"{pid}.jpg").exists()
         if image_missing:

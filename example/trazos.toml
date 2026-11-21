@@ -1,0 +1,5 @@
+# Site settings for one artist. Copy this folder to start your own archive.
+artist = "Ada"                # the only name the site shows: a first name or a pseudonym
+title = "The art of Ada"      # optional; defaults to "The art of <artist>" / "Las obras de <artist>"
+lang = "en"                   # "en" or "es"
+noindex = true                # keep search engines and AI crawlers out (robots.txt + meta)

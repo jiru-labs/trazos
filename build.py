@@ -22,8 +22,10 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parent
 ASSETS = ENGINE / "assets"
 
-FIELDS = ("id", "year", "age", "technique", "title", "tags", "favourite")
-ID_RE = re.compile(r"^\d{4}-\d{3}$")
+FIELDS = ("id", "year", "order", "age", "technique", "title", "tags", "favourite")
+# Hand-made ids look like 2026-001; tools/ingest.py uses a short content hash.
+ID_RE = re.compile(r"^(\d{4}-\d{3}|[0-9a-f]{10})$")
+AGE_RE = re.compile(r"^(\d+)(?:\s*[-–]\s*(\d+))?$")
 
 STRINGS = {
     "es": {
@@ -109,8 +111,16 @@ def parse(path, pieces_dir):
         if has_metadata(img):
             fail(f"{img.name}: still carries EXIF/XMP metadata (GPS, camera, date); run tools/prepare.sh")
     meta["year"] = int(meta["year"])
-    if meta.get("age") and not meta["age"].isdigit():
-        fail(f"{path.name}: age must be a whole number")
+    if meta.get("age"):
+        m_age = AGE_RE.match(meta["age"])
+        if not m_age:
+            fail(f"{path.name}: age must be a whole number or a range like 3-4")
+        lo, hi = int(m_age.group(1)), int(m_age.group(2) or m_age.group(1))
+        meta["age"] = str(lo) if lo == hi else f"{lo}–{hi}"
+        meta["age_span"] = list(range(lo, hi + 1))
+    if meta.get("order") and not meta["order"].isdigit():
+        fail(f"{path.name}: order must be a whole number")
+    meta["order"] = int(meta.get("order") or 0)
     meta["tags"] = [t.strip().lower() for t in meta.get("tags", "").split(",") if t.strip()]
     meta["favourite"] = meta.get("favourite", "").lower() in ("yes", "sí", "si", "true")
     meta["story"] = [p.strip() for p in m.group(2).strip().split("\n\n") if p.strip()]
@@ -131,6 +141,9 @@ class Site:
         self.t = STRINGS[cfg["lang"]]
 
     def age(self, n):
+        """'5' -> '5 años' / 'age 5'; '3–4' -> '3–4 años' / 'ages 3–4'."""
+        if not str(n).isdigit():
+            return self.t["ages_many"].format(list=n)
         n = int(n)
         return self.t["age_one" if n == 1 else "age_many"].format(n=n)
 
@@ -188,7 +201,7 @@ def build(root):
     site = Site(cfg)
     t = site.t
     pieces_dir, out = root / "pieces", root / "public"
-    pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: p["id"])
+    pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: (p["year"], p["order"], p["id"]))
 
     if out.exists():
         shutil.rmtree(out)
@@ -212,7 +225,7 @@ def build(root):
         parts = []
         for year in sorted({p["year"] for p in pieces}, reverse=True):
             items = [p for p in pieces if p["year"] == year]
-            ages = sorted({int(p["age"]) for p in items if p.get("age")})
+            ages = sorted({a for p in items for a in p.get("age_span", [])})
             sub = f" <small>({e(site.ages(ages))})</small>" if ages else ""
             parts.append(f'<section><h2 id="y{year}">{year}{sub}</h2>{site.grid(items)}</section>')
         body = "\n".join(parts)

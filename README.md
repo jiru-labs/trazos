@@ -28,7 +28,31 @@ with the story in the artist's own words.
 3. Delete the demo pieces, add your own (below) and push. In the repo settings, set
    Pages to deploy from **GitHub Actions**. For a custom domain, add `site/CNAME`.
 
-## Add a piece
+## Sync from a folder (recommended)
+
+Keep your originals in one folder (a synced cloud folder works well) and let
+`tools/ingest.py` turn it into pieces. The folder is the approval: what is in it is
+published, what you move into a subfolder (e.g. `private/`) is not.
+
+```sh
+python3 -m venv ~/.trazos && ~/.trazos/bin/pip install -r tools/requirements.txt
+TRAZOS_BIRTHDATE=2019-06-01 ~/.trazos/bin/python tools/ingest.py ~/Art path/to/your-archive --state ~/.trazos/state.json
+python3 build.py path/to/your-archive
+```
+
+- Name files `<date> <anything> - <title>.<ext>`, where `<date>` is `2026-05-14`, `2026-05`
+  or `2026` (`2025 Dibujo - el gato.heic`). Without a date, the photo's EXIF date is used.
+  A year alone gives an age range (`ages 4–5`).
+- Optional `<same name>.txt` next to it: first lines `technique:`, `tags:`, `favourite: yes`,
+  then the story.
+- Each photo is turned upright, **cropped to the sheet of paper** when one is found (OpenCV;
+  otherwise left whole), resized and saved as JPEG with no metadata at all. HEIC works.
+- Ids are a short hash of the original, so renaming a file updates the piece in place, and
+  deleting it removes the piece. An empty source folder is refused, never read as "delete all".
+- The birthdate is only used to compute ages; it is never written to the archive.
+- Run it from cron to publish by just dropping a photo into the folder.
+
+## Add a piece by hand
 
 ```sh
 tools/prepare.sh IMG_1234.HEIC 2026-001   # web copies + empty sidecar + OCR, in ~/trazos-staging
@@ -40,7 +64,7 @@ git -C path/to/your-archive add pieces && git -C path/to/your-archive commit -m 
 `prepare.sh` needs ImageMagick (with HEIC support for iPhone photos), exiftool and
 tesseract. Set `TRAZOS_OCR_LANGS=spa+eng` for Spanish text.
 
-A piece is three files in `pieces/`, named `<year>-<nnn>`:
+A piece is three files in `pieces/`, named `<year>-<nnn>` (or a 10-character hash when ingested):
 
 ```
 2026-001.md         the sidecar
@@ -61,7 +85,7 @@ favourite: no
 The story in the artist's words. Blank lines separate paragraphs.
 ```
 
-Only `id` and `year` are required.
+Only `id` and `year` are required. `age` may be a range (`4-5`); `order` sorts pieces inside a year.
 
 ## Build locally
 
@@ -84,6 +108,8 @@ fotos y lee el texto de la imagen para que revises que no se vea un apellido o e
 nombre de un colegio. El build se niega a publicar una imagen con EXIF. Sin scripts ni
 rastreadores. Los originales se quedan contigo y en git solo entran las copias para la web.
 
+Lo más cómodo: una carpeta con los originales y `tools/ingest.py` (arriba). Lo que está en la
+carpeta se publica; lo que metes en una subcarpeta, no. Recorta la hoja sola y acepta HEIC.
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
 
 ## License

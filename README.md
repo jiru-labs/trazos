@@ -83,8 +83,13 @@ python3 build.py path/to/your-archive
   `month: june`, then the story.
 - Each photo is turned upright, **cropped to the sheet of paper** when one is found (OpenCV;
   otherwise left whole; `--no-crop` always keeps the whole photo), resized and saved as JPEG
-  with no metadata at all. HEIC works. Images are made once: after changing `--no-crop`,
-  run once with `--reprocess` to redo them all.
+  with no metadata at all. HEIC works (with `pillow-heif`; without it HEIC files are skipped).
+  Images are made once: after changing `--no-crop`, run once with `--reprocess` to redo them all.
+- **Videos** (`.mp4 .mov .m4v .webm .mkv .avi .3gp`) need `ffmpeg`. Each becomes an MP4 that
+  plays in every browser (H.264, long side at most 1280 px), **without sound** and with every
+  tag dropped (a phone video carries its GPS position, the phone model and the date), plus a
+  poster frame for the grid. A 31 s iPhone clip went from 11.3 MB to 5.4 MB. The page loads
+  nothing until play is pressed. Without ffmpeg, videos are skipped and kept as they were.
 - Ids are a short hash of the original, so renaming a file updates the piece in place, and
   deleting it removes the piece. An empty source folder is refused, never read as "delete all".
 - The birthdate is only used to compute ages; it is never written to the archive.
@@ -108,7 +113,10 @@ A piece is three files in `pieces/`, named `<year>-<nnn>` (or a 10-character has
 2026-001.md         the sidecar
 2026-001.jpg        long side 1600 px
 2026-001-thumb.jpg  long side 600 px
+2026-001.mp4        only for a video (`video: yes` in the sidecar); the .jpg is its poster
 ```
+
+`build.py` refuses an MP4 that still carries location or camera tags, as it refuses a JPEG with EXIF.
 
 ```
 ---
@@ -215,6 +223,7 @@ rastreadores. Los originales se quedan contigo y en git solo entran las copias p
 
 Lo más cómodo: una carpeta con los originales y `tools/ingest.py` (arriba). Lo que está en la
 carpeta se publica; lo que metes en una subcarpeta, no. Recorta la hoja sola y acepta HEIC.
+También vídeos (con `ffmpeg`): se publican sin sonido y sin ningún dato del móvil (ni GPS, ni fecha, ni modelo).
 El mes no se muestra: solo ordena cada año de diciembre a enero. Lo que no sabemos de qué
 mes es va al final de su año, hasta que lo nombres `2025-06 …` o pongas `mes: junio` en su `.txt`.
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.

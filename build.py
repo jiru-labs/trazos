@@ -8,6 +8,7 @@ CONTENT_DIR holds:
   pieces/<id>.md         front matter + the story in the artist's words
   pieces/<id>.jpg        web version (long side 1600 px, metadata stripped)
   pieces/<id>-thumb.jpg  grid version (long side 600 px)
+  pieces/<id>.mp4        a video piece (`video: yes`): web MP4, metadata stripped; the .jpg is its poster
   site/                  optional extra static files (CNAME, favicon...), copied last
   edits/<id>.json        optional hand edits (the /admin/ page writes them); they win over pieces/<id>.md
   admin-key.json         written by /admin/ on setup: the GitHub token, encrypted with the admin password
@@ -28,7 +29,7 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parent
 ASSETS = ENGINE / "assets"
 
-FIELDS = ("id", "year", "month", "order", "age", "technique", "title", "tags", "favourite", "hidden", "artists")
+FIELDS = ("id", "year", "month", "order", "age", "technique", "title", "tags", "favourite", "hidden", "artists", "video")
 # Hand-made ids look like 2026-001; tools/ingest.py uses a short content hash.
 ID_RE = re.compile(r"^(\d{4}-\d{3}|[0-9a-f]{10})$")
 AGE_RE = re.compile(r"^(\d+)(?:\s*[-–]\s*(\d+))?$")
@@ -142,6 +143,19 @@ def load_config(root):
     return cfg
 
 
+# Atoms a camera or phone leaves in a video: where (GPS), with what, and by whom.
+VIDEO_META = (b"\xa9xyz", b"com.apple.quicktime.location", b"com.apple.quicktime.make",
+              b"com.apple.quicktime.model", b"\xa9mak", b"\xa9mod", b"loci")
+
+
+def video_has_metadata(path):
+    """True if an MP4 still carries location or camera atoms. ingest.py writes none."""
+    data = path.read_bytes()
+    if data[4:8] != b"ftyp":
+        fail(f"{path.name}: not an MP4")
+    return any(atom in data for atom in VIDEO_META)
+
+
 def has_metadata(img):
     """True if a JPEG still has an EXIF or XMP segment. A built site must never leak them."""
     data = img.read_bytes()
@@ -215,6 +229,13 @@ def parse(path, pieces_dir):
             fail(f"{path.name}: {img.name} is missing")
         if has_metadata(img):
             fail(f"{img.name}: still carries EXIF/XMP metadata (GPS, camera, date); run tools/prepare.sh")
+    meta["video"] = meta.get("video", "").lower() in ("yes", "sí", "si", "true")
+    if meta["video"]:
+        mp4 = pieces_dir / f"{path.stem}.mp4"
+        if not mp4.exists():
+            fail(f"{path.name}: video: yes but {mp4.name} is missing")
+        if video_has_metadata(mp4):
+            fail(f"{mp4.name}: still carries location or camera metadata; make it again with tools/ingest.py")
     meta["year"] = int(meta["year"])
     if meta.get("age"):
         m_age = AGE_RE.match(meta["age"])
@@ -242,6 +263,15 @@ def parse(path, pieces_dir):
     meta["hidden"] = meta.get("hidden", "").lower() in ("yes", "sí", "si", "true")
     meta["story"] = [p.strip() for p in body.strip().split("\n\n") if p.strip()]
     return meta
+
+
+def media(site, p, label):
+    """The piece itself: its image, or its video with the image as poster (nothing loads until play)."""
+    src = f'../{site.base}img/{e(p["id"])}'
+    if p.get("video"):
+        return (f'<video controls muted playsinline preload="none" poster="{src}.jpg" aria-label="{e(label)}">'
+                f'<source src="{src}.mp4" type="video/mp4"></video>')
+    return f'<img src="{src}.jpg" alt="{e(label)}">'
 
 
 def slug(t):
@@ -382,7 +412,7 @@ class Site:
         for p in items:
             label = p.get("title") or self.t["untitled"]
             cards.append(
-                f'<a class="card" href="{up}piece/{e(p["id"])}.html">'
+                f'<a class="card{" video" if p.get("video") else ""}" href="{up}piece/{e(p["id"])}.html">'
                 f'<img src="{res}img/{e(p["id"])}-thumb.jpg" alt="{e(label)}" loading="lazy">'
                 f'<span>{e(label)}</span></a>'
             )
@@ -580,7 +610,7 @@ def write_language(site, pieces, out):
         tags = "".join(f'<a href="../tag/{e(slug(x))}.html">{e(x)}</a>' for x in p["tags"])
         story = "".join(f"<p>{e(s)}</p>" for s in p["story"])
         body = (
-            f'<article class="piece"><img src="../{site.base}img/{e(p["id"])}.jpg" alt="{e(label)}">'
+            f'<article class="piece">{media(site, p, label)}'
             f"<h1>{e(label)}{' ★' if p['favourite'] else ''}</h1><p class=\"facts\">{e(facts)}</p>"
             f"{story}<p class=\"tags\">{tags}</p></article>"
         )
@@ -619,7 +649,7 @@ def build(root):
     if cfg["protect"]:
         protect(out)
     for p in pieces:
-        for suffix in (".jpg", "-thumb.jpg"):
+        for suffix in (".jpg", "-thumb.jpg") + ((".mp4",) if p["video"] else ()):
             shutil.copy(pieces_dir / f"{p['id']}{suffix}", out / "img" / f"{p['id']}{suffix}")
     extra = root / "site"
     if extra.is_dir():

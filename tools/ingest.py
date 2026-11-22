@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ingest a folder of originals (photos or scans) into a trazos content folder.
+"""Ingest a folder of originals (photos, scans or videos) into a trazos content folder.
 
     ingest.py SOURCE_DIR CONTENT_DIR --state STATE.json [--birthdate YYYY-MM-DD] [--no-crop] [--reprocess]
     ingest.py SOURCE_DIR --preview OUT_DIR [--no-crop]      (process only, write nothing else)
@@ -26,10 +26,16 @@ Images are decoded (HEIC too), turned upright, cropped to the sheet of paper whe
 found (OpenCV; --no-crop keeps the whole photo), resized to 1600/600 px and written as JPEG
 WITHOUT any metadata. Images are made once; --reprocess makes them all again (after changing
 --no-crop, say), and the pieces it rewrote count as updated.
+Videos (.mp4 .mov .m4v .webm .mkv .avi .3gp) are transcoded with ffmpeg to an MP4 that plays
+in every browser (H.264, long side at most 1280 px, fast start), WITHOUT sound (a voice in the
+background is not the artwork's to publish) and with ALL metadata dropped, GPS included; a frame from the first second becomes the poster and grid thumbnail.
+Their date comes from the name, the .txt, or the camera's creation_time. Without ffmpeg on the
+PATH, videos are skipped with a warning (and the ones already on the site are kept).
 The birthdate (for ages) is read from --birthdate or $TRAZOS_BIRTHDATE and never written
 anywhere: only the resulting age is.
 
-Needs: Pillow, pillow-heif, opencv-python-headless, numpy (see tools/requirements.txt).
+Needs: Pillow, pillow-heif, opencv-python-headless, numpy (see tools/requirements.txt);
+ffmpeg and ffprobe for videos.
 Prints a JSON summary on the last line: {"added": [...], "updated": [...], "removed": [...]}.
 """
 import argparse
@@ -38,17 +44,26 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
-from pillow_heif import register_heif_opener
-
-register_heif_opener()
+try:  # HEIC/HEIF support; without it those photos are skipped with a warning
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIF = True
+except ImportError:
+    HEIF = False
 
 IMAGE_EXT = {".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp"}
+VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp"}
+VIDEO_SIDE = 1280      # long side of the web video, px
+VIDEO_WARN_MB = 50     # GitHub refuses files over 100 MB; warn well before
 NAME_RE = re.compile(r"^(?P<date>\d{4}(?:-\d{2}(?:-\d{2})?)?)?\s*(?P<rest>.*?)$")
 FIELD_RE = re.compile(r"^\s*(técnica|tecnica|technique|etiquetas|tags|favorito|favourite|año|year|mes|month)\s*:\s*(.*)$", re.I)
 FIELD_MAP = {"técnica": "technique", "tecnica": "technique", "technique": "technique",
@@ -141,6 +156,53 @@ def process(path, crop=True):
     return im, cropped
 
 
+def is_video(path):
+    return path.suffix.lower() in VIDEO_EXT
+
+
+def transcode(path, dest):
+    """Write a silent web MP4 of `path` to `dest` with no metadata (no GPS, no camera, no date)."""
+    side = VIDEO_SIDE
+    scale = (f"scale='if(gte(iw,ih),min({side},iw),-2)':'if(gte(iw,ih),-2,min({side},ih))'")
+    tmp = dest.with_suffix(".part.mp4")
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", str(path),
+         "-map", "0:v:0", "-an", "-map_metadata", "-1", "-map_chapters", "-1",
+         "-vf", scale, "-c:v", "libx264", "-preset", "slow", "-crf", "26",
+         "-maxrate", "3M", "-bufsize", "6M", "-pix_fmt", "yuv420p",
+         "-metadata", "creation_time=", "-fflags", "+bitexact", "-flags:v", "+bitexact",
+         "-movflags", "+faststart", str(tmp)],
+        check=True)
+    tmp.replace(dest)
+    mb = dest.stat().st_size / 1e6
+    if mb > VIDEO_WARN_MB:
+        print(f"ingest: {path.name}: web video is {mb:.0f} MB (GitHub refuses files over 100 MB)", file=sys.stderr)
+
+
+def poster(path):
+    """A frame from the first second (or the very first, for a shorter clip), upright."""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "poster.png"
+        for at in ("1", "0"):
+            subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-ss", at, "-i", str(path),
+                            "-frames:v", "1", str(out)], check=False)
+            if out.exists() and out.stat().st_size:
+                return Image.open(out).convert("RGB")
+    raise RuntimeError(f"{path.name}: could not read a frame")
+
+
+def video_date(path):
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time",
+                            "-of", "default=nw=1:nk=1", str(path)], capture_output=True, text=True, timeout=60)
+        raw = r.stdout.strip()
+        if re.match(r"\d{4}-\d{2}-\d{2}", raw) and not raw.startswith("1970"):
+            return raw[:10]
+    except Exception:
+        pass
+    return None
+
+
 def save_web(im, dest_dir, pid):
     big = im.copy()
     big.thumbnail((1600, 1600), Image.LANCZOS)
@@ -205,7 +267,7 @@ def age_label(date, birth):
     return str(a) if a == b else f"{a}–{b}"
 
 
-def sidecar(pid, year, month, age, title, fields, story, order):
+def sidecar(pid, year, month, age, title, fields, story, order, video=False):
     fav = fields.get("favourite", "").lower() in ("sí", "si", "yes", "true")
     lines = ["---", f"id: {pid}", f"year: {year}"]
     if month:
@@ -218,7 +280,10 @@ def sidecar(pid, year, month, age, title, fields, story, order):
     lines.append(f'title: "{title.replace(chr(34), "")}"')
     if fields.get("tags"):
         lines.append(f"tags: {fields['tags']}")
-    lines += [f"favourite: {'yes' if fav else 'no'}", "---"]
+    lines.append(f"favourite: {'yes' if fav else 'no'}")
+    if video:
+        lines.append("video: yes")
+    lines.append("---")
     return "\n".join(lines) + "\n" + (story + "\n" if story else "")
 
 
@@ -233,7 +298,7 @@ def sha(path):
 
 
 def sources(src):
-    return sorted(p for p in src.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXT)
+    return sorted(p for p in src.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXT | VIDEO_EXT)
 
 
 def main():
@@ -247,6 +312,19 @@ def main():
     ap.add_argument("--preview", type=Path)
     a = ap.parse_args()
     files = sources(a.source)
+    skipped_videos = set()  # names skipped for a missing tool: kept on the site, never removed
+    if not HEIF:
+        for p in [p for p in files if p.suffix.lower() in (".heic", ".heif")]:
+            print(f"ingest: {p.name}: skipped, pillow-heif is not installed", file=sys.stderr)
+            skipped_videos.add(p.name)
+        files = [p for p in files if p.suffix.lower() not in (".heic", ".heif")]
+    have_ffmpeg = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+    if not have_ffmpeg:
+        videos = sorted(p.name for p in files if is_video(p))
+        skipped_videos.update(videos)
+        for name in videos:
+            print(f"ingest: {name}: skipped, ffmpeg/ffprobe are not installed", file=sys.stderr)
+        files = [p for p in files if not is_video(p)]
     if not files:
         # A sync that sees ZERO originals must not wipe the site: a missing mount looks the same.
         sys.exit(f"ingest: no images in {a.source}; refusing to treat that as 'delete everything'")
@@ -254,7 +332,7 @@ def main():
     if a.preview:
         a.preview.mkdir(parents=True, exist_ok=True)
         for p in files:
-            im, cropped = process(p, not a.no_crop)
+            im, cropped = (poster(p), False) if is_video(p) else process(p, not a.no_crop)
             im.thumbnail((900, 900))
             im.save(a.preview / f"{p.stem}.jpg", "JPEG", quality=80)
             print(f"{'crop' if cropped else 'full'}  {p.name}")
@@ -279,7 +357,7 @@ def main():
         seen.add(h)
         name_date, title = parse_name(p)
         fields, story = read_txt(p)
-        exif = None if fields.get("year") or name_date else photo_date(p)
+        exif = None if fields.get("year") or name_date else (video_date(p) if is_video(p) else photo_date(p))
         date = fields.get("year") or name_date or exif or dt.date.fromtimestamp(st.st_mtime).isoformat()
         # Only a date the name or the photo gave can carry a month; the file's mtime cannot.
         trusted = not fields.get("year") and bool(name_date or exif)
@@ -305,12 +383,17 @@ def main():
             month, when = int(date[5:7]), date
         else:
             month, when = None, str(year)
-        md = sidecar(pid, year, month, age_label(when, birth), title, fields, story, per_year[year])
+        md = sidecar(pid, year, month, age_label(when, birth), title, fields, story, per_year[year],
+                     video=is_video(p))
         md_path = pieces / f"{pid}.md"
-        image_missing = not (pieces / f"{pid}.jpg").exists()
+        image_missing = not (pieces / f"{pid}.jpg").exists() or (is_video(p) and not (pieces / f"{pid}.mp4").exists())
         if image_missing or a.reprocess:
-            im, _ = process(p, not a.no_crop)
-            save_web(im, pieces, pid)
+            if is_video(p):
+                transcode(p, pieces / f"{pid}.mp4")
+                save_web(poster(pieces / f"{pid}.mp4"), pieces, pid)
+            else:
+                im, _ = process(p, not a.no_crop)
+                save_web(im, pieces, pid)
         if image_missing or not md_path.exists() or md_path.read_text(encoding="utf-8") != md:
             md_path.write_text(md, encoding="utf-8")
             (added if not prev else updated).append(pid)
@@ -319,9 +402,10 @@ def main():
         state[h] = {"id": pid, "sig": sig, "name": p.name}
 
     removed = []
-    for h in [h for h in state if h not in seen]:
+    # A file skipped for want of a tool is still in the archive: keep it on the site.
+    for h in [h for h in state if h not in seen and state[h].get("name") not in skipped_videos]:
         pid = state.pop(h)["id"]
-        for f in (f"{pid}.md", f"{pid}.jpg", f"{pid}-thumb.jpg"):
+        for f in (f"{pid}.md", f"{pid}.jpg", f"{pid}-thumb.jpg", f"{pid}.mp4"):
             (pieces / f).unlink(missing_ok=True)
         removed.append(pid)
 

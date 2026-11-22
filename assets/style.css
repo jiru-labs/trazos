@@ -71,12 +71,17 @@ h2 small, .facts, .empty, .tags small { color: var(--muted); font-weight: 400; }
 .card:hover, .card:focus-visible { transform: rotate(0) translateY(-3px); }
 /* The whole drawing, never cropped: letterboxed inside a square on the card's own paper. */
 .card img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; border-radius: 3px; background: var(--card); }
+.card { position: relative; }
+.card.video::after { content: ""; position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,.55); pointer-events: none; }
+/* The play mark is drawn with borders: the CSP allows no data: images. */
+.card.video::before { content: ""; position: absolute; z-index: 1; top: 25px; right: 24px; border-style: solid; border-width: 7px 0 7px 12px; border-color: transparent transparent transparent #fff; pointer-events: none; }
 .card span { display: block; padding: .45rem .2rem .55rem; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .card, .card:nth-child(n) { transform: none; transition: none; } }
 
 /* One piece */
 .piece { max-width: 780px; margin: 0 auto; }
-.piece img { width: 100%; height: auto; border-radius: 6px; background: var(--card); padding: 10px; box-shadow: var(--shadow); }
+.piece img, .piece video { width: 100%; height: auto; border-radius: 6px; background: var(--card); padding: 10px; box-shadow: var(--shadow); }
+.piece video { display: block; max-height: 85vh; }
 .piece h1 { margin: 1.4rem 0 .2rem; font-size: 2rem; }
 .piece p { max-width: 65ch; }
 

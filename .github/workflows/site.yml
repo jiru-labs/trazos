@@ -1,0 +1,45 @@
+# Reusable: publish a trazos archive whose content lives in ANOTHER repo (usually private) on the
+# caller's GitHub Pages. The caller repo holds only the call, so the artwork never enters a public
+# git history. Call it pinned, `@vX.Y.Z`, and pass the same release as `trazos_ref`.
+name: Site
+on:
+  workflow_call:
+    inputs:
+      content:
+        description: owner/repo with trazos.toml and pieces/
+        type: string
+        required: true
+      trazos_ref:
+        description: the trazos release that builds it (same as the @ref of this call)
+        type: string
+        required: true
+    secrets:
+      content_key:
+        description: read-only SSH deploy key of the content repo (needed when it is private)
+        required: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.content }}
+          ssh-key: ${{ secrets.content_key }}
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: nyakojiru/trazos
+          ref: ${{ inputs.trazos_ref }}
+          path: .trazos
+          persist-credentials: false
+      - run: python3 .trazos/build.py .
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+          include-hidden-files: true   # .well-known/tdmrep.json (protect)
+          retention-days: 1            # the built site (with the images) is not kept around
+      - id: deploy
+        uses: actions/deploy-pages@v5

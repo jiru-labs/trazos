@@ -90,6 +90,10 @@ def load_config(root):
         fail("trazos.toml: admin must look like owner/repo")
     if cfg.get("admin_committer") and not re.match(r"^[^<>]+ <[^<>@\s]+@[^<>\s]+>$", cfg["admin_committer"]):
         fail("trazos.toml: admin_committer must look like Name <email>")
+    # `admin_deploy = "owner/repo"`: the site is published from another repo (content kept private,
+    # see the `site` workflow); after each save the admin asks that repo's pages.yml to run.
+    if cfg.get("admin_deploy") and not re.match(r"^[\w.-]+/[\w.-]+$", cfg["admin_deploy"]):
+        fail("trazos.toml: admin_deploy must look like owner/repo")
     return cfg
 
 
@@ -277,7 +281,8 @@ def admin_page(root, out, cfg, pieces):
         base["story"] = story.strip()
         items.append({"id": p["id"], "year": p["year"], "month": p["month"], "order": p["order"],
                       "title": p.get("title", ""), "base": base})
-    data = {"repo": cfg["admin"], "lang": cfg["lang"], "committer": cfg.get("admin_committer", ""),
+    data = {"repo": cfg["admin"], "deploy": cfg.get("admin_deploy", ""), "lang": cfg["lang"],
+            "committer": cfg.get("admin_committer", ""),
             "settings": {k: raw.get(k) for k in ("title", "artist", "lang", "rights", "protect") if k in raw},
             "pieces": items}
     (d / "data.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

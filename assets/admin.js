@@ -1,8 +1,9 @@
 // trazos /admin/: log in as admin and edit pieces and settings, with no server.
-// The GitHub token (fine-grained, this repo only, Contents read/write) lives in admin-key.json,
+// The GitHub token (fine-grained, this repo only, Contents read/write; plus Actions read/write on
+// the `admin_deploy` repo when the site is published from another one) lives in admin-key.json,
 // encrypted with the admin password (PBKDF2-SHA256 600k + AES-GCM). Logging in decrypts it in
 // this tab only (sessionStorage); saves are commits through the GitHub API, and GitHub Pages
-// rebuilds the site. Edits go to edits/<id>.json and settings to trazos.toml.
+// rebuilds the site (or, with `admin_deploy`, we ask that repo's pages.yml to run). Edits go to edits/<id>.json and settings to trazos.toml.
 "use strict";
 
 const API = "https://api.github.com";
@@ -12,6 +13,9 @@ const S = {
     login: "Entrar como admin", user: "Usuario", password: "Contraseña", password2: "Repite la contraseña",
     enter: "Entrar", bad_login: "Usuario o contraseña incorrectos.", back_site: "← Volver a la web",
     setup: "Configurar el admin", setup_help: "Solo una vez. Pega un token de GitHub «fine-grained» con acceso solo a {repo} (permiso Contents: lectura y escritura) y elige la contraseña de admin (12 caracteres o más). El token se guarda cifrado con ella; el usuario es «admin».",
+    setup_deploy: " La web se publica desde {deploy}: dale también permiso Actions: lectura y escritura en ese repo.",
+    bad_deploy: "El token no puede publicar {deploy} (permiso Actions: lectura y escritura).",
+    not_published: "Guardado, pero no se pudo pedir la publicación",
     token: "Token de GitHub", bad_token: "Ese token no es «fine-grained» (github_pat_…) o no puede escribir en {repo}.",
     bad_pw: "Las contraseñas no coinciden o tienen menos de 12 caracteres.",
     pieces: "Obras", settings: "Ajustes", logout: "Salir", save: "Guardar",
@@ -31,6 +35,9 @@ const S = {
     login: "Log in as admin", user: "User", password: "Password", password2: "Repeat the password",
     enter: "Log in", bad_login: "Wrong user or password.", back_site: "← Back to the site",
     setup: "Set up the admin", setup_help: "Only once. Paste a fine-grained GitHub token with access to {repo} only (Contents: read and write) and choose the admin password (12 characters or more). The token is stored encrypted with it; the user is \"admin\".",
+    setup_deploy: " The site is published from {deploy}: also give it Actions: read and write on that repo.",
+    bad_deploy: "The token cannot publish {deploy} (Actions: read and write).",
+    not_published: "Saved, but publishing could not be requested",
     token: "GitHub token", bad_token: "That token is not fine-grained (github_pat_…) or cannot write to {repo}.",
     bad_pw: "The passwords differ or are shorter than 12 characters.",
     pieces: "Pieces", settings: "Settings", logout: "Log out", save: "Save",
@@ -66,7 +73,7 @@ function h(tag, attrs, ...kids) {
 }
 const show = (...kids) => { app.replaceChildren(...kids); window.scrollTo(0, 0); };
 const msg = (text, bad) => h("p", { class: bad ? "msg bad" : "msg" }, text);
-const fmt = (s) => s.replace("{repo}", data.repo);
+const fmt = (s) => s.replace("{repo}", data.repo).replace("{deploy}", data.deploy || "");
 
 // ---- encoding and crypto ----
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -114,6 +121,14 @@ function commitBody(message, extra) {
 const putFile = (p, text, sha, message) => gh(repoPath(p), { method: "PUT",
   body: commitBody(message, { content: b64(enc.encode(text)), ...(sha ? { sha } : {}) }) });
 const deleteFile = (p, sha, message) => gh(repoPath(p), { method: "DELETE", body: commitBody(message, { sha }) });
+// With `admin_deploy` the site repo does not see our commits: ask its pages.yml to run.
+const dispatch = () => gh(`/repos/${data.deploy}/actions/workflows/pages.yml/dispatches`,
+  { method: "POST", body: JSON.stringify({ ref: "main" }) });
+async function republish() {  // null when fine, else the message to show instead of T.saved
+  if (!data.deploy) return null;
+  try { await dispatch(); return null; } catch (err) { return `${T.not_published}: ${err.message}`; }
+}
+const savedMsg = (note) => msg(note || T.saved, !!note);
 
 // The key: the published copy, or straight from the repo when the site has not rebuilt yet.
 async function loadKey() {
@@ -177,8 +192,10 @@ function setupView(back) {
       token = tk;
       const repo = await gh(`/repos/${data.repo}`);
       if (!tk.startsWith("github_pat_") || !repo.permissions || !repo.permissions.push) throw new Error(fmt(T.bad_token));
+      if (data.deploy) await dispatch().catch((err) => { throw new Error(`${fmt(T.bad_deploy)} (${err.message})`); });
       const old = await getFile("admin-key.json");
       await putFile("admin-key.json", await seal(tk, pw), old && old.sha, "Admin: clave cifrada");
+      await republish();
       setToken(tk);
       route();
     } catch (err) {
@@ -192,7 +209,7 @@ function setupView(back) {
     h("label", {}, T.password, h("input", { type: "password", name: "password", autocomplete: "new-password", minlength: "12", required: true })),
     h("label", {}, T.password2, h("input", { type: "password", name: "password2", autocomplete: "new-password", minlength: "12", required: true })),
     h("button", {}, T.save));
-  show(h("section", { class: "login" }, h("h1", {}, T.setup), h("p", {}, h("small", {}, fmt(T.setup_help))), out, form, back));
+  show(h("section", { class: "login" }, h("h1", {}, T.setup), h("p", {}, h("small", {}, fmt(T.setup_help) + (data.deploy ? fmt(T.setup_deploy) : ""))), out, form, back));
 }
 
 let editedKnown = false;
@@ -250,8 +267,9 @@ async function pieceView(id) {
       else if (file) await deleteFile(`edits/${id}.json`, file.sha, `Admin: ${id} (original)`);
       p.title = next.title || base.title;
       p.edited = Object.keys(next).length > 0;
+      const note = await republish();
       await pieceView(id);
-      app.querySelector("form").before(msg(T.saved));
+      app.querySelector("form").before(savedMsg(note));
     } catch (err) {
       out.replaceChildren(msg(`${T.error}: ${err.message}`, true));
       busy(form, false);
@@ -307,9 +325,10 @@ async function settingsView() {
     t = tomlSet(t, "protect", form.elements.namedItem("protect").checked);
     busy(form, true);
     try {
-      if (t !== toml) await putFile("trazos.toml", t, file.sha, "Admin: ajustes");
+      let note = null;
+      if (t !== toml) { await putFile("trazos.toml", t, file.sha, "Admin: ajustes"); note = await republish(); }
       await settingsView();
-      app.querySelector("form").before(msg(T.saved));
+      app.querySelector("form").before(savedMsg(note));
     } catch (err) {
       out.replaceChildren(msg(`${T.error}: ${err.message}`, true));
       busy(form, false);
@@ -332,8 +351,9 @@ async function settingsView() {
     try {
       const old = await getFile("admin-key.json");
       await putFile("admin-key.json", await seal(token, np), old && old.sha, "Admin: contraseña cambiada");
+      const note = await republish();
       pw.reset();
-      pwOut.replaceChildren(msg(T.pw_changed));
+      pwOut.replaceChildren(msg(note || T.pw_changed, !!note));
     } catch (err) {
       pwOut.replaceChildren(msg(`${T.error}: ${err.message}`, true));
     }

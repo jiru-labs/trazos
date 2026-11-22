@@ -122,6 +122,37 @@ the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each sa
   use a long one. If it leaks, revoke the token on GitHub; forgot it, delete `admin-key.json`
   and set up again. Public pages stay script-free; only `/admin/` runs a script.
 
+## Content in a private repo
+
+GitHub Pages (free) only publishes public repos, and anything committed to a public repo stays in
+its history even after you delete it. To keep the artwork out of every public history, split it:
+
+- **`<site>-contenido`**, private: `trazos.toml`, `pieces/`, `edits/`, `admin-key.json` and
+  `site/CNAME`, i.e. everything a normal trazos repo has. Ingest and the admin write here.
+- **`<site>`**, public: only `.github/workflows/pages.yml`, which calls the reusable `site`
+  workflow of trazos, so the site's repo never holds a single image:
+
+  ```yaml
+  name: Pages
+  on: { workflow_dispatch: {} }
+  permissions: { contents: read, pages: write, id-token: write }
+  concurrency: { group: pages, cancel-in-progress: true }
+  jobs:
+    site:
+      uses: nyakojiru/trazos/.github/workflows/site.yml@v0.10.0
+      with: { content: owner/site-contenido, trazos_ref: v0.10.0 }
+      secrets: { content_key: "${{ secrets.CONTENT_KEY }}" }
+  ```
+
+Set up once: add a **read-only deploy key** to the private repo and its private half as the
+`CONTENT_KEY` secret of the public one; set Pages to *GitHub Actions* (and the custom domain) on
+the public repo. In the private repo's `trazos.toml` put `admin = "owner/site-contenido"` and
+`admin_deploy = "owner/site"`; the admin token then needs *Contents: read and write* on the
+private repo and *Actions: read and write* on the public one, and every save asks the public
+`pages.yml` to run. Whatever else writes the private repo (an ingest cron) runs the same
+dispatch afterwards: `POST /repos/owner/site/actions/workflows/pages.yml/dispatches` with
+`{"ref":"main"}`. The built site is kept as an artifact for one day only.
+
 ## Build locally
 
 ```sh

@@ -103,31 +103,24 @@ Only `id` and `year` are required. `month` is 1–12 (leave it out when you don'
 
 ## Admin mode
 
-```sh
-python3 tools/admin.py path/to/your-archive [--publish] [--require-tailscale-user]
-```
+Add `admin = "owner/repo"` to `trazos.toml` (and, optionally, `admin_committer = "Name <email>"`
+for the commits) and the site gets an **Entrar / Log in** link in the footer and a login page
+at `/admin/`. There is no server: the page is static, and your browser edits the repo through
+the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each save.
 
-A small editor at `http://127.0.0.1:8765/`, standard library only: change the title, story,
-technique, tags, favourite, year and month of any piece, and the basic settings (site title,
-artist, language, rights notice, protection). Edits are stored in `edits/<id>.json` and win
-over `pieces/<id>.md`, so a re-ingest never undoes them; clear a field and the original comes
-back. Every save rebuilds the site and is undone if the build refuses it. With `--publish` a
-save is committed and pushed; `--lock FILE` shares a lock with your ingest job.
-
-**Login.** One admin (user `admin`), one password, no sign-up. `--password-file admin.json`
-turns it on. The front page is a portal: *just enter* opens the public site, *log in as admin*
-asks for user and password. While there is no password, the portal offers to create it, but
-only to a tailnet user (`tailscale serve` adds `Tailscale-User-Login`; Funnel never does), so it
-can be put on the internet with `tailscale funnel` before or after. Or set or change it with
-
-```sh
-python3 tools/admin.py --password-file admin.json --set-password   # asks twice
-```
-
-It is stored as a PBKDF2 hash (keep the file out of git); changing it logs out every open
-session, and five wrong passwords lock the login for 15 minutes (tailnet and public counted apart). Serve it over HTTPS (e.g.
-`tailscale serve --bg --https=8765 http://127.0.0.1:8765`); `--require-tailscale-user`
-additionally limits it to people on your tailnet. Cross-site form posts are refused.
+- **Set up once.** Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+  with access to *only* this repo and the permission *Contents: read and write*. Open `/admin/`,
+  paste it and choose the admin password (12+ characters). The token is encrypted in the browser
+  with that password (PBKDF2-SHA256, 600 000 rounds, AES-GCM) and committed as `admin-key.json`.
+- **Log in** with user `admin` and that password. The token is decrypted in that tab only and
+  forgotten when the tab closes. Change the password in *Settings*.
+- **Edit** the title, story, technique, tags, favourite, year, month and age of any piece, and
+  the basic settings (site title, artist, language, rights notice, protection). Piece edits go to
+  `edits/<id>.json` and win over `pieces/<id>.md`, so a re-ingest never undoes them; clear a
+  field and the original comes back.
+- **Honest limits.** `admin-key.json` is public, so the password is what protects the token:
+  use a long one. If it leaks, revoke the token on GitHub; forgot it, delete `admin-key.json`
+  and set up again. Public pages stay script-free; only `/admin/` runs a script.
 
 ## Build locally
 
@@ -157,7 +150,7 @@ carpeta se publica; lo que metes en una subcarpeta, no. Recorta la hoja sola y a
 El mes no se muestra: solo ordena cada año de diciembre a enero. Lo que no sabemos de qué
 mes es va al final de su año, hasta que lo nombres `2025-06 …` o pongas `mes: junio` en su `.txt`.
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
-Para editar títulos, historias y ajustes desde el navegador, `tools/admin.py` (modo admin, arriba).
+Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba).
 
 ## License
 

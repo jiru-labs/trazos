@@ -9,7 +9,8 @@ CONTENT_DIR holds:
   pieces/<id>.jpg        web version (long side 1600 px, metadata stripped)
   pieces/<id>-thumb.jpg  grid version (long side 600 px)
   site/                  optional extra static files (CNAME, favicon...), copied last
-  edits/<id>.json        optional hand edits from tools/admin.py; they win over pieces/<id>.md
+  edits/<id>.json        optional hand edits (the /admin/ page writes them); they win over pieces/<id>.md
+  admin-key.json         written by /admin/ on setup: the GitHub token, encrypted with the admin password
 
 Output goes to CONTENT_DIR/public. Standard library only (Python 3.11+).
 """
@@ -35,7 +36,7 @@ STRINGS = {
         "untitled": "Sin título", "empty": "Todavía no hay obras aquí. Pronto.",
         "no_tags": "Sin etiquetas todavía.", "no_favs": "Sin favoritos todavía.",
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
-        "ages_many": "{list} años", "default_title": "Las obras de {artist}",
+        "ages_many": "{list} años", "default_title": "Las obras de {artist}", "enter": "Entrar",
         "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
                   "para minería de textos y datos o para entrenar inteligencia artificial "
                   "(art. 4.3 de la Directiva (UE) 2019/790).",
@@ -45,7 +46,7 @@ STRINGS = {
         "untitled": "Untitled", "empty": "No pieces here yet. Soon.",
         "no_tags": "No tags yet.", "no_favs": "No favourites yet.",
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
-        "ages_many": "ages {list}", "default_title": "The art of {artist}",
+        "ages_many": "ages {list}", "default_title": "The art of {artist}", "enter": "Log in",
         "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
                   "mining or to train artificial intelligence, is not permitted "
                   "(Art. 4(3) of Directive (EU) 2019/790).",
@@ -84,6 +85,11 @@ def load_config(root):
     cfg.setdefault("protect", cfg.get("noindex", True))
     t = STRINGS[cfg["lang"]]
     cfg.setdefault("title", t["default_title"].format(artist=cfg["artist"]))
+    # `admin = "owner/repo"` adds a login page at /admin/ that edits this repo through the GitHub API.
+    if cfg.get("admin") and not re.match(r"^[\w.-]+/[\w.-]+$", cfg["admin"]):
+        fail("trazos.toml: admin must look like owner/repo")
+    if cfg.get("admin_committer") and not re.match(r"^[^<>]+ <[^<>@\s]+@[^<>\s]+>$", cfg["admin_committer"]):
+        fail("trazos.toml: admin_committer must look like Name <email>")
     return cfg
 
 
@@ -105,7 +111,8 @@ def has_metadata(img):
     return False
 
 
-def parse(path, pieces_dir):
+def sidecar(path):
+    """The sidecar as written: (front matter as strings, story text). No edits applied."""
     text = path.read_text(encoding="utf-8")
     m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
     if not m:
@@ -119,8 +126,12 @@ def parse(path, pieces_dir):
         if key not in FIELDS:
             fail(f"{path.name}: unknown field {key!r}")
         meta[key] = value
-    body = m.group(2)
-    # Hand edits (tools/admin.py) win over the ingested sidecar, which a re-ingest rewrites.
+    return meta, m.group(2)
+
+
+def parse(path, pieces_dir):
+    meta, body = sidecar(path)
+    # Hand edits (the /admin/ page) win over the ingested sidecar, which a re-ingest rewrites.
     edits = pieces_dir.parent / "edits" / f"{path.stem}.json"
     if edits.exists():
         for key, value in json.loads(edits.read_text(encoding="utf-8")).items():
@@ -199,7 +210,8 @@ class Site:
                   '<meta name="tdm-reservation" content="1">\n'
                   if self.cfg["protect"] else "")
         rights = self.cfg.get("rights") or (t["rights"].format(artist=self.cfg["artist"]) if self.cfg["protect"] else "")
-        footer = f'<footer><p>{e(rights)}</p></footer>\n' if rights else ""
+        enter = f' <a class="enter" href="{up}admin/">{t["enter"]}</a>' if self.cfg.get("admin") else ""
+        footer = f'<footer><p>{e(rights)}{enter}</p></footer>\n' if rights or enter else ""
         return f"""<!doctype html>
 <html lang="{e(self.cfg['lang'])}">
 <head>
@@ -245,6 +257,49 @@ def protect(out):
     # W3C TDMRep: the machine-readable form of the EU text-and-data-mining opt-out.
     (out / ".well-known").mkdir(exist_ok=True)
     (out / ".well-known" / "tdmrep.json").write_text('[{"location": "/*", "tdm-reservation": 1}]\n')
+
+
+def admin_page(root, out, cfg, pieces):
+    """/admin/: a static login page. The browser does the rest against the GitHub API: the token is
+    stored encrypted with the admin password (admin-key.json), so there is no server at all."""
+    d = out / "admin"
+    d.mkdir()
+    shutil.copy(ASSETS / "admin.js", d / "admin.js")
+    shutil.copy(ASSETS / "admin.css", d / "admin.css")
+    key = root / "admin-key.json"
+    if key.exists():
+        shutil.copy(key, d / "key.json")
+    raw = tomllib.loads((root / "trazos.toml").read_text(encoding="utf-8"))
+    items = []
+    for p in pieces:
+        meta, story = sidecar(root / "pieces" / f"{p['id']}.md")
+        base = {k: meta.get(k, "") for k in FIELDS if k not in ("id", "order")}
+        base["story"] = story.strip()
+        items.append({"id": p["id"], "year": p["year"], "month": p["month"], "order": p["order"],
+                      "title": p.get("title", ""), "base": base})
+    data = {"repo": cfg["admin"], "lang": cfg["lang"], "committer": cfg.get("admin_committer", ""),
+            "settings": {k: raw.get(k) for k in ("title", "artist", "lang", "rights", "protect") if k in raw},
+            "pieces": items}
+    (d / "data.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    (d / "index.html").write_text(f"""<!doctype html>
+<html lang="{e(cfg['lang'])}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>admin · {e(cfg['title'])}</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+<header><a class="home" href="../index.html">{e(cfg['title'])}</a><nav id="nav"></nav></header>
+<main id="app"><noscript>JavaScript</noscript></main>
+<script src="admin.js"></script>
+</body>
+</html>
+""", encoding="utf-8")
 
 
 def build(root):
@@ -312,6 +367,9 @@ def build(root):
     favs = [p for p in pieces if p["favourite"]]
     body = site.grid(favs) if favs else f'<p class="empty">{t["no_favs"]}</p>'
     write(FAVS_PAGE, site.page(t["favourites"], f'<h1>{t["favourites"]}</h1>{body}'))
+
+    if cfg.get("admin"):
+        admin_page(root, out, cfg, pieces)
 
     print(f"trazos: built {len(pieces)} pieces, {len(tags)} tags -> {out}")
 

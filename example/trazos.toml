@@ -3,3 +3,4 @@ artist = "Ada"                # the only name the site shows: a first name or a 
 title = "The art of Ada"      # optional; defaults to "The art of <artist>" / "Las obras de <artist>"
 lang = "en"                   # "en" or "es"
 protect = true                # keep search engines and AI crawlers out (robots.txt + meta)
+# admin = "you/your-archive"   # adds a login page at /admin/ that edits this repo (see README, Admin mode)

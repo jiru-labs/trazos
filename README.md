@@ -35,6 +35,19 @@ with the story in the artist's own words.
 3. Delete the demo pieces, add your own (below) and push. In the repo settings, set
    Pages to deploy from **GitHub Actions**. For a custom domain, add `site/CNAME`.
 
+## Languages, link previews and icon
+
+- **Both languages.** `languages = ["es", "en"]` builds the site in each: `lang` at the root,
+  the others under `/en/` (or `/es/`), with a link in the menu to switch. Only the site's own
+  words change; titles, stories and tags are shown as you wrote them.
+- **Link previews.** Set `url = "https://your-site.example"` and a link shared in WhatsApp,
+  Telegram, Slack and the like shows the piece's title, picture and facts (Open Graph tags).
+  `protect` lets those preview fetchers in (they read the one shared page and do not index);
+  search engines and AI crawlers stay out. Without `url` a preview shows the title only.
+- **Icon.** Every site gets a page icon (a sheet of paper with one crayon stroke) as
+  `favicon.svg`, `favicon.ico` and `apple-touch-icon.png`. Put your own files with those
+  names in `site/` to replace it.
+
 ## Sync from a folder (recommended)
 
 Keep your originals in one folder (a synced cloud folder works well) and let
@@ -189,6 +202,10 @@ carpeta se publica; lo que metes en una subcarpeta, no. Recorta la hoja sola y a
 El mes no se muestra: solo ordena cada año de diciembre a enero. Lo que no sabemos de qué
 mes es va al final de su año, hasta que lo nombres `2025-06 …` o pongas `mes: junio` en su `.txt`.
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
+Con `languages = ["es", "en"]` la web sale también en inglés, bajo `/en/`, con un enlace para cambiar
+de idioma (se traduce la web, no los títulos ni las historias). Con `url = "https://tu-web"` un enlace
+compartido por WhatsApp o Telegram muestra el título y el dibujo. Cada web lleva su icono de pestaña;
+para usar uno tuyo, pon `favicon.svg`, `favicon.ico` y `apple-touch-icon.png` en `site/`.
 Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba).
 
 ## License

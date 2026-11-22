@@ -20,6 +20,9 @@ import re
 import shutil
 import sys
 import tomllib
+import zlib
+import math
+import struct
 from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parent
@@ -37,6 +40,7 @@ STRINGS = {
         "no_tags": "Sin etiquetas todavía.", "no_favs": "Sin favoritos todavía.",
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
         "ages_many": "{list} años", "default_title": "Las obras de {artist}", "enter": "Entrar",
+        "lang_name": "Español", "locale": "es_ES", "count": "{n} obras",
         "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
                   "para minería de textos y datos o para entrenar inteligencia artificial "
                   "(art. 4.3 de la Directiva (UE) 2019/790).",
@@ -47,6 +51,7 @@ STRINGS = {
         "no_tags": "No tags yet.", "no_favs": "No favourites yet.",
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
         "ages_many": "ages {list}", "default_title": "The art of {artist}", "enter": "Log in",
+        "lang_name": "English", "locale": "en_GB", "count": "{n} pieces",
         "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
                   "mining or to train artificial intelligence, is not permitted "
                   "(Art. 4(3) of Directive (EU) 2019/790).",
@@ -62,6 +67,13 @@ BLOCKED_BOTS = (
     "MistralAI-User", "YouBot", "Timpibot", "ImagesiftBot", "Omgilibot", "img2dataset",
     "AI2Bot", "PetalBot", "Googlebot-Image", "bingbot", "Googlebot",
 )
+# Link-preview fetchers (WhatsApp, Telegram, Signal goes client-side...): they read one page when
+# someone shares a link, to draw its card, and do not index. `protect` lets them in so a shared
+# link shows the title and picture; search engines and AI crawlers stay out.
+PREVIEW_BOTS = ("facebookexternalhit", "WhatsApp", "TelegramBot", "Slackbot-LinkExpanding",
+                "Discordbot", "Twitterbot", "LinkedInBot")
+# WhatsApp drops a preview image heavier than about 300 KB; above that the thumbnail is used.
+PREVIEW_MAX_BYTES = 300_000
 # Page slugs stay ASCII and language-neutral so URLs never change with `lang`.
 TAGS_PAGE, FAVS_PAGE = "tags.html", "favourites.html"
 
@@ -85,6 +97,19 @@ def load_config(root):
     cfg.setdefault("protect", cfg.get("noindex", True))
     t = STRINGS[cfg["lang"]]
     cfg.setdefault("title", t["default_title"].format(artist=cfg["artist"]))
+    # `languages = ["es", "en"]`: the site is also built in the other languages, under /<code>/.
+    # `lang` stays at the root; `title_<code>` / `rights_<code>` name the others (else the defaults). Only the site's own words change; titles,
+    # stories and tags are shown as written.
+    langs = cfg.get("languages") or [cfg["lang"]]
+    if not isinstance(langs, list) or any(l not in STRINGS for l in langs):
+        fail(f"trazos.toml: languages must be a list of {', '.join(STRINGS)}")
+    cfg["languages"] = [cfg["lang"]] + [l for l in dict.fromkeys(langs) if l != cfg["lang"]]
+    # `url = "https://example.org"`: the public address. Link previews (WhatsApp...) need it to
+    # point at the picture, so without it a shared link shows only the title.
+    if cfg.get("url"):
+        if not re.match(r"^https?://[^\s/]+(/[^\s]*)?$", cfg["url"]):
+            fail("trazos.toml: url must look like https://example.org")
+        cfg["url"] = cfg["url"].rstrip("/")
     # `admin = "owner/repo"` adds a login page at /admin/ that edits this repo through the GitHub API.
     if cfg.get("admin") and not re.match(r"^[\w.-]+/[\w.-]+$", cfg["admin"]):
         fail("trazos.toml: admin must look like owner/repo")
@@ -113,6 +138,20 @@ def has_metadata(img):
             return True
         i += 2 + length
     return False
+
+
+def jpeg_size(img):
+    """(width, height) from a JPEG's frame header, or None."""
+    data = img.read_bytes()
+    i = 2
+    while i + 9 <= len(data) and data[i] == 0xFF:
+        marker = data[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(data[i + 7:i + 9], "big"), int.from_bytes(data[i + 5:i + 7], "big")
+        if marker == 0xDA:
+            return None
+        i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    return None
 
 
 def sidecar(path):
@@ -194,9 +233,55 @@ def e(s):
 
 
 class Site:
-    def __init__(self, cfg):
-        self.cfg = cfg
-        self.t = STRINGS[cfg["lang"]]
+    def __init__(self, cfg, lang, pieces_dir):
+        self.cfg, self.lang, self.pieces_dir = cfg, lang, pieces_dir
+        self.t = STRINGS[lang]
+        self.primary = lang == cfg["lang"]
+        # Pages of another language live under /<lang>/ and share the root's images and style.
+        self.sub = "" if self.primary else f"{lang}/"
+        self.base = "" if self.primary else "../"
+        if self.primary:
+            self.title = cfg["title"]
+        else:
+            self.title = cfg.get(f"title_{lang}") or self.t["default_title"].format(artist=cfg["artist"])
+
+    def href(self, lang, path, up):
+        """Relative link from the current page to `path` in `lang`."""
+        root = up + self.base
+        return root + ("" if lang == self.cfg["lang"] else f"{lang}/") + path
+
+    def preview(self, title, path, piece, desc):
+        """Open Graph tags: what WhatsApp, Telegram and the like draw when the link is shared."""
+        cfg, t = self.cfg, self.t
+        tags = [("og:type", "article" if path.startswith("piece/") else "website"), ("og:title", title),
+                ("og:site_name", self.title), ("og:locale", t["locale"])]
+        tags += [("og:locale:alternate", STRINGS[l]["locale"]) for l in cfg["languages"] if l != self.lang]
+        if desc:
+            tags.append(("og:description", desc))
+        card = "summary"
+        if cfg.get("url"):
+            page = "" if path == "index.html" else path
+            tags.append(("og:url", f"{cfg['url']}/{self.sub}{page}"))
+            if piece:
+                img = self.pieces_dir / f"{piece['id']}.jpg"
+                if img.stat().st_size > PREVIEW_MAX_BYTES:
+                    img = self.pieces_dir / f"{piece['id']}-thumb.jpg"
+                tags.append(("og:image", f"{cfg['url']}/img/{img.name}"))
+                size = jpeg_size(img)
+                if size:
+                    tags += [("og:image:width", str(size[0])), ("og:image:height", str(size[1]))]
+                tags.append(("og:image:alt", piece.get("title") or t["untitled"]))
+                card = "summary_large_image"
+        out = "".join(f'<meta property="{k}" content="{e(v)}">\n' for k, v in tags)
+        out += f'<meta name="twitter:card" content="{card}">\n'
+        if desc:
+            out += f'<meta name="description" content="{e(desc)}">\n'
+        if cfg.get("url") and len(cfg["languages"]) > 1:
+            for l in cfg["languages"]:
+                sub = "" if l == cfg["lang"] else f"{l}/"
+                page = "" if path == "index.html" else path
+                out += f'<link rel="alternate" hreflang="{l}" href="{e(cfg["url"])}/{sub}{e(page)}">\n'
+        return out
 
     def age(self, n):
         """'5' -> '5 años' / 'age 5'; '3–4' -> '3–4 años' / 'ages 3–4'."""
@@ -212,30 +297,38 @@ class Site:
         joined = ", ".join(map(str, ages[:-1])) + self.t["and"] + str(ages[-1])
         return self.t["ages_many"].format(list=joined)
 
-    def page(self, title, body, depth=0):
+    def page(self, title, body, path, piece=None, desc=""):
+        depth = path.count("/")
         up = "../" * depth
+        res = up + self.base
         t = self.t
         robots = ('<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">\n'
                   '<meta name="tdm-reservation" content="1">\n'
                   if self.cfg["protect"] else "")
-        rights = self.cfg.get("rights") or (t["rights"].format(artist=self.cfg["artist"]) if self.cfg["protect"] else "")
-        enter = f' <a class="enter" href="{up}admin/">{t["enter"]}</a>' if self.cfg.get("admin") else ""
+        custom = self.cfg.get("rights") if self.primary else self.cfg.get(f"rights_{self.lang}")
+        rights = custom or (t["rights"].format(artist=self.cfg["artist"]) if self.cfg["protect"] else "")
+        enter = f' <a class="enter" href="{res}admin/">{t["enter"]}</a>' if self.cfg.get("admin") else ""
+        switch = "".join(f'<a class="lang" lang="{l}" hreflang="{l}" href="{e(self.href(l, path, up))}">'
+                         f'{STRINGS[l]["lang_name"]}</a>' for l in self.cfg["languages"] if l != self.lang)
         footer = f'<footer><p>{e(rights)}{enter}</p></footer>\n' if rights or enter else ""
         return f"""<!doctype html>
-<html lang="{e(self.cfg['lang'])}">
+<html lang="{e(self.lang)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{robots}<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'">
+{robots}{self.preview(title, path, piece, desc)}<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="generator" content="trazos">
 <title>{e(title)}</title>
-<link rel="stylesheet" href="{up}style.css">
+<link rel="icon" href="{res}favicon.svg" type="image/svg+xml">
+<link rel="icon" href="{res}favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="{res}apple-touch-icon.png">
+<link rel="stylesheet" href="{res}style.css">
 </head>
 <body>
 <header>
-<a class="home" href="{up}index.html">{e(self.cfg['title'])}</a>
-<nav><a href="{up}index.html">{t['by_year']}</a><a href="{up}{TAGS_PAGE}">{t['tags']}</a><a href="{up}{FAVS_PAGE}">{t['favourites']}</a></nav>
+<a class="home" href="{up}index.html">{e(self.title)}</a>
+<nav><a href="{up}index.html">{t['by_year']}</a><a href="{up}{TAGS_PAGE}">{t['tags']}</a><a href="{up}{FAVS_PAGE}">{t['favourites']}</a>{switch}</nav>
 </header>
 <main>
 {body}
@@ -246,21 +339,86 @@ class Site:
 
     def grid(self, items, depth=0):
         up = "../" * depth
+        res = up + self.base
         cards = []
         for p in items:
             label = p.get("title") or self.t["untitled"]
             cards.append(
                 f'<a class="card" href="{up}piece/{e(p["id"])}.html">'
-                f'<img src="{up}img/{e(p["id"])}-thumb.jpg" alt="{e(label)}" loading="lazy">'
+                f'<img src="{res}img/{e(p["id"])}-thumb.jpg" alt="{e(label)}" loading="lazy">'
                 f'<span>{e(label)}</span></a>'
             )
         return '<div class="grid">' + "".join(cards) + "</div>"
 
 
+# The page icon: a sheet of drawing paper with one crayon stroke, in the palette of style.css.
+# A content folder can bring its own (site/favicon.svg, site/favicon.ico,
+# site/apple-touch-icon.png): site/ is copied last and replaces these.
+PAPER, CRAYON, EDGE = (0xFA, 0xF6, 0xEE), (0xC2, 0x46, 0x2A), (0xE8, 0xE0, 0xD2)
+ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<style>.p{fill:#faf6ee;stroke:#e8e0d2}.s{stroke:#c2462a}
+@media (prefers-color-scheme: dark){.p{fill:#26231f;stroke:#3a352f}.s{stroke:#f07a5a}}</style>
+<rect class="p" x="2" y="2" width="60" height="60" rx="14" stroke-width="2"/>
+<path class="s" d="M14 38 C22 18, 30 18, 32 32 S42 46, 50 26" fill="none" stroke-width="8" stroke-linecap="round"/>
+</svg>
+"""
+
+
+def icon_png(size):
+    """The same icon as a PNG, drawn with the standard library (supersampled)."""
+    pts = []  # the stroke as a polyline, in 0..64 units, sampled from the SVG's two curves
+    def bez(p0, p1, p2, p3, n=24):
+        for i in range(n + 1):
+            t = i / n
+            pts.append(tuple((1-t)**3*a + 3*(1-t)**2*t*b + 3*(1-t)*t**2*c + t**3*d for a, b, c, d in zip(p0, p1, p2, p3)))
+    bez((14, 38), (22, 18), (30, 18), (32, 32))
+    bez((32, 32), (34, 46), (42, 46), (50, 26))
+    segs = list(zip(pts, pts[1:]))
+    def dist(x, y):
+        best = 1e9
+        for (ax, ay), (bx, by) in segs:
+            dx, dy = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy or 1)))
+            best = min(best, (x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2)
+        return best
+    def inside(x, y, inset=2.0, r=14.0):
+        cx, cy = min(max(x, inset + r), 64 - inset - r), min(max(y, inset + r), 64 - inset - r)
+        return (x - cx) ** 2 + (y - cy) ** 2 <= r * r and inset <= x <= 64 - inset and inset <= y <= 64 - inset
+    k, rows = (4 if size <= 64 else 2), []
+    for py in range(size):
+        row = bytearray(b"\0")
+        for px in range(size):
+            acc = [0, 0, 0, 0]
+            for sy in range(k):
+                for sx in range(k):
+                    x, y = (px + (sx + .5) / k) * 64 / size, (py + (sy + .5) / k) * 64 / size
+                    if not inside(x, y, 1.0, 15.0):
+                        continue
+                    c = EDGE if not inside(x, y) else (CRAYON if dist(x, y) <= 16 else PAPER)
+                    acc[0] += c[0]; acc[1] += c[1]; acc[2] += c[2]; acc[3] += 255
+            n = k * k
+            a = acc[3] // n
+            row += bytes((acc[0] * 255 // acc[3] if acc[3] else 0, acc[1] * 255 // acc[3] if acc[3] else 0,
+                          acc[2] * 255 // acc[3] if acc[3] else 0, a))
+        rows.append(bytes(row))
+    chunk = lambda tag, data: struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
+
+
+def icons(out):
+    (out / "favicon.svg").write_text(ICON_SVG)
+    png = icon_png(32)
+    # An .ico that simply wraps the 32 px PNG (supported everywhere since Windows Vista).
+    (out / "favicon.ico").write_bytes(struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(png), 22) + png)
+    (out / "apple-touch-icon.png").write_bytes(icon_png(180))
+
+
 def protect(out):
     """Every machine-readable 'no' there is. Polite bots obey; the rest meet the legal reservation."""
     named = "".join(f"User-agent: {b}\nDisallow: /\n\n" for b in BLOCKED_BOTS)
-    (out / "robots.txt").write_text(named + "User-agent: *\nDisallow: /\n")
+    preview = "".join(f"User-agent: {b}\n" for b in PREVIEW_BOTS) + "Allow: /\n\n"
+    (out / "robots.txt").write_text(named + preview + "User-agent: *\nDisallow: /\n")
     # Spawning's ai.txt, read by image dataset tools (img2dataset honours it).
     (out / "ai.txt").write_text("User-Agent: *\nDisallow: /\nDisallow: *\n")
     # W3C TDMRep: the machine-readable form of the EU text-and-data-mining opt-out.
@@ -301,6 +459,8 @@ def admin_page(root, out, cfg, pieces):
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>admin · {e(cfg['title'])}</title>
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="admin.css">
 </head>
@@ -313,31 +473,16 @@ def admin_page(root, out, cfg, pieces):
 """, encoding="utf-8")
 
 
-def build(root):
-    root = root.resolve()
-    cfg = load_config(root)
-    site = Site(cfg)
+def write_language(site, pieces, out):
+    """Every public page in one language; returns the tags."""
     t = site.t
-    pieces_dir, out = root / "pieces", root / "public"
-    pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: (p["year"], p["order"], p["id"]))
-    pieces = [p for p in pieces if not p["hidden"]]
-
-    if out.exists():
-        shutil.rmtree(out)
-    for d in ("piece", "tag", "img"):
-        (out / d).mkdir(parents=True)
-    shutil.copy(ASSETS / "style.css", out / "style.css")
-    (out / ".nojekyll").write_text("")
-    if cfg["protect"]:
-        protect(out)
-    for p in pieces:
-        for suffix in (".jpg", "-thumb.jpg"):
-            shutil.copy(pieces_dir / f"{p['id']}{suffix}", out / "img" / f"{p['id']}{suffix}")
-    extra = root / "site"
-    if extra.is_dir():
-        shutil.copytree(extra, out, dirs_exist_ok=True)
-
-    write = lambda rel, html_: (out / rel).write_text(html_, encoding="utf-8")
+    d = out / site.sub
+    for sub in ("piece", "tag"):
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    write = lambda rel, html_: (d / rel).write_text(html_, encoding="utf-8")
+    # The picture a shared link to the archive shows: the newest favourite, else the newest piece.
+    favs_all = [p for p in pieces if p["favourite"]]
+    cover = (favs_all or pieces)[-1] if pieces else None
 
     # Timeline, newest year first
     if pieces:
@@ -352,7 +497,7 @@ def build(root):
         body = "\n".join(parts)
     else:
         body = f'<p class="empty">{t["empty"]}</p>'
-    write("index.html", site.page(cfg["title"], body))
+    write("index.html", site.page(site.title, body, "index.html", cover, site.t["count"].format(n=len(pieces)) if pieces else ""))
 
     for p in pieces:
         label = p.get("title") or t["untitled"]
@@ -363,24 +508,53 @@ def build(root):
         tags = "".join(f'<a href="../tag/{e(slug(x))}.html">{e(x)}</a>' for x in p["tags"])
         story = "".join(f"<p>{e(s)}</p>" for s in p["story"])
         body = (
-            f'<article class="piece"><img src="../img/{e(p["id"])}.jpg" alt="{e(label)}">'
+            f'<article class="piece"><img src="../{site.base}img/{e(p["id"])}.jpg" alt="{e(label)}">'
             f"<h1>{e(label)}{' ★' if p['favourite'] else ''}</h1><p class=\"facts\">{e(facts)}</p>"
             f"{story}<p class=\"tags\">{tags}</p></article>"
         )
-        write(f"piece/{p['id']}.html", site.page(label, body, 1))
+        write(f"piece/{p['id']}.html", site.page(label, body, f"piece/{p['id']}.html", p, facts))
 
     tags = sorted({x for p in pieces for x in p["tags"]})
     for x in tags:
         items = [p for p in pieces if x in p["tags"]]
-        write(f"tag/{slug(x)}.html", site.page(x, f"<h1>{e(x)}</h1>{site.grid(items, 1)}", 1))
+        write(f"tag/{slug(x)}.html", site.page(x, f"<h1>{e(x)}</h1>{site.grid(items, 1)}", f"tag/{slug(x)}.html", items[-1]))
     links = "".join(
         f'<a href="tag/{e(slug(x))}.html">{e(x)} <small>{sum(x in p["tags"] for p in pieces)}</small></a>'
         for x in tags) or f'<span class="empty">{t["no_tags"]}</span>'
-    write(TAGS_PAGE, site.page(t["tags"], f'<h1>{t["tags"]}</h1><p class="tags">{links}</p>'))
+    write(TAGS_PAGE, site.page(t["tags"], f'<h1>{t["tags"]}</h1><p class="tags">{links}</p>', TAGS_PAGE, cover))
 
     favs = [p for p in pieces if p["favourite"]]
     body = site.grid(favs) if favs else f'<p class="empty">{t["no_favs"]}</p>'
-    write(FAVS_PAGE, site.page(t["favourites"], f'<h1>{t["favourites"]}</h1>{body}'))
+    write(FAVS_PAGE, site.page(t["favourites"], f'<h1>{t["favourites"]}</h1>{body}', FAVS_PAGE, favs[-1] if favs else cover))
+
+    return tags
+
+
+def build(root):
+    root = root.resolve()
+    cfg = load_config(root)
+    pieces_dir, out = root / "pieces", root / "public"
+    pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: (p["year"], p["order"], p["id"]))
+    pieces = [p for p in pieces if not p["hidden"]]
+
+    if out.exists():
+        shutil.rmtree(out)
+    for d in ("piece", "tag", "img"):
+        (out / d).mkdir(parents=True)
+    shutil.copy(ASSETS / "style.css", out / "style.css")
+    (out / ".nojekyll").write_text("")
+    icons(out)
+    if cfg["protect"]:
+        protect(out)
+    for p in pieces:
+        for suffix in (".jpg", "-thumb.jpg"):
+            shutil.copy(pieces_dir / f"{p['id']}{suffix}", out / "img" / f"{p['id']}{suffix}")
+    extra = root / "site"
+    if extra.is_dir():
+        shutil.copytree(extra, out, dirs_exist_ok=True)
+
+    for lang in cfg["languages"]:
+        tags = write_language(Site(cfg, lang, pieces_dir), pieces, out)
 
     if cfg.get("admin"):
         admin_page(root, out, cfg, pieces)

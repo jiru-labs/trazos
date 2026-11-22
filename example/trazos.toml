@@ -5,4 +5,7 @@ lang = "en"                   # "en" or "es"
 protect = true                # keep search engines and AI crawlers out (robots.txt + meta)
 languages = ["en", "es"]      # optional: also build the site in Spanish, under /es/
 url = "https://jirulabs.com/trazos"   # optional: the public address, for link previews (WhatsApp...)
+# One plain line at the top of the home page (else "Ada's drawings, kept year by year..."):
+about = "A demo of trazos: a quiet, private-by-design website that keeps someone's drawings year by year, each with the age it was made at and its story. Free and open source."
+about_es = "Una demo de trazos: una web tranquila y privada desde el diseño que guarda los dibujos de alguien año a año, cada uno con su edad y su historia. Libre y de código abierto."
 # admin = "you/your-archive"   # adds a login page at /admin/ that edits this repo (see README, Admin mode)

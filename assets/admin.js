@@ -23,7 +23,7 @@ const S = {
     bad_pw: "Las contraseñas no coinciden o tienen menos de 12 caracteres.",
     pieces: "Obras", settings: "Ajustes", logout: "Salir", save: "Guardar",
     saved: "Guardado. La web se actualiza en 1–2 minutos.", error: "No se guardó",
-    title: "Título", story: "Historia", artists: "Artistas (vacío = solo {artist}; varios, separados por comas)", technique: "Técnica", tags: "Etiquetas (separadas por comas)",
+    title: "Título", story: "Historia", artists: "Artistas (vacío = solo {artist}; varios, separados por comas)", technique: "Técnica", no_technique: "—", techniques: "Técnicas para elegir (separadas por comas; vacío = las de serie)", tags: "Etiquetas (separadas por comas)",
     favourite: "Favorito", year: "Año", month: "Mes (no se muestra; solo ordena)", no_month: "Sin mes",
     age: "Edad (5, o 4-5)", original: "del archivo", reset: "Vacía un campo y vuelve el del archivo.",
     site_title: "Título de la web", artist: "Nombre de la artista", lang: "Idioma",
@@ -48,7 +48,7 @@ const S = {
     bad_pw: "The passwords differ or are shorter than 12 characters.",
     pieces: "Pieces", settings: "Settings", logout: "Log out", save: "Save",
     saved: "Saved. The site updates in 1–2 minutes.", error: "Not saved",
-    title: "Title", story: "Story", artists: "Artists (empty = only {artist}; several, comma separated)", technique: "Technique", tags: "Tags (comma separated)",
+    title: "Title", story: "Story", artists: "Artists (empty = only {artist}; several, comma separated)", technique: "Technique", no_technique: "—", techniques: "Techniques to choose from (comma separated; empty = the stock ones)", tags: "Tags (comma separated)",
     favourite: "Favourite", year: "Year", month: "Month (never shown; only orders)", no_month: "No month",
     age: "Age (5, or 4-5)", original: "from the file", reset: "Clear a field to bring back the one from the file.",
     site_title: "Site title", artist: "Artist's name", lang: "Language",
@@ -302,6 +302,15 @@ async function listView() {
   show(h("h1", {}, T.pieces), ...(data.sync ? [syncBox()] : []), ...parts);
 }
 
+// The technique pick-list: the site's list (built into data.json), plus this piece's own values, so
+// opening and saving a piece never changes a technique nobody touched.
+const techniqueList = (...own) => uniq([...(data.techniques || []), ...own.map((x) => String(x || ""))]);
+const splitList = (v) => uniq(v.split(","));
+function uniq(list) {
+  const seen = new Set();
+  return list.map((x) => x.trim()).filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase()));
+}
+
 const FIELDS = ["title", "story", "artists", "technique", "tags", "favourite", "year", "month", "age"];
 const isYes = (v) => ["yes", "sí", "si", "true"].includes(String(v || "").toLowerCase());
 
@@ -350,7 +359,11 @@ async function pieceView(id) {
   } },
     text("title", T.title),
     h("label", {}, T.story, hint("story", "…"), h("textarea", { name: "story" }, cur.story || "")),
-    text("artists", fmt(T.artists)), text("technique", T.technique), text("tags", T.tags),
+    text("artists", fmt(T.artists)),
+    h("label", {}, T.technique, hint("technique"),
+      h("select", { name: "technique" }, h("option", { value: "", selected: !cur.technique }, T.no_technique),
+        techniqueList(base.technique, cur.technique).map((x) => h("option", { value: x, selected: x === cur.technique }, x)))),
+    text("tags", T.tags),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "favourite", checked: isYes(cur.favourite) }), T.favourite),
     h("label", {}, T.year, hint("year"), h("input", { type: "number", name: "year", min: "1900", max: "2200", value: cur.year || "" })),
     h("label", {}, T.month, hint("month", base.month ? months[base.month - 1] : T.no_month),
@@ -366,6 +379,8 @@ async function pieceView(id) {
 
 // trazos.toml: only top-level `key = value` lines are read or written; everything else is kept.
 function tomlGet(text, key) {
+  const a = new RegExp(`^${key}\\s*=\\s*(\\[[^\\]]*\\])`, "m").exec(text);
+  if (a) { try { return JSON.parse(a[1].replace(/,\s*\]$/, "]")); } catch (_) { return undefined; } }
   const m = new RegExp(`^${key}\\s*=\\s*(.*)$`, "m").exec(text);
   if (!m) return undefined;
   const v = m[1].trim();
@@ -373,7 +388,7 @@ function tomlGet(text, key) {
   return /^true\b/.test(v) ? true : /^false\b/.test(v) ? false : v.replace(/\s*#.*$/, "");
 }
 function tomlSet(text, key, value) {
-  const re = new RegExp(`^${key}\\s*=.*$\\n?`, "m");
+  const re = new RegExp(`^${key}\\s*=(\\s*\\[[^\\]]*\\]|.*)$\\n?`, "m");  // an array may span lines
   if (value === null) return text.replace(re, "");
   const line = `${key} = ${typeof value === "boolean" ? value : JSON.stringify(value)}`;
   if (re.test(text)) return text.replace(re, line + "\n");
@@ -397,10 +412,15 @@ async function settingsView() {
     t = tomlSet(t, "lang", form.elements.namedItem("lang").value);
     t = tomlSet(t, "rights", form.elements.namedItem("rights").value.trim() || null);
     t = tomlSet(t, "protect", form.elements.namedItem("protect").checked);
+    const tech = splitList(form.elements.namedItem("techniques").value);
+    t = tomlSet(t, "techniques", tech.length ? tech : null);
     busy(form, true);
     try {
       let note = null;
       if (t !== toml) { await putFile("trazos.toml", t, file.sha, "Admin: ajustes"); note = await republish(); }
+      // data.json is rebuilt with the site; until then the pieces use the new list from here.
+      data.techniques = uniq([...(tech.length ? tech : data.default_techniques || []),
+        ...data.pieces.map((p) => String(p.base.technique || ""))]);
       await settingsView();
       app.querySelector("form").before(savedMsg(note));
     } catch (err) {
@@ -414,6 +434,8 @@ async function settingsView() {
       ["es", "en"].map((l) => h("option", { value: l, selected: (get("lang") || "es") === l }, l)))),
     h("label", {}, T.rights, h("textarea", { name: "rights" }, get("rights") || "")),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "protect", checked: get("protect") !== false }), T.protect),
+    h("label", {}, T.techniques, h("textarea", { name: "techniques", placeholder: (data.default_techniques || []).join(", ") },
+      Array.isArray(get("techniques")) ? get("techniques").join(", ") : "")),
     h("button", {}, T.save));
 
   const pwOut = h("div");

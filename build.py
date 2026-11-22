@@ -41,6 +41,11 @@ STRINGS = {
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
         "ages_many": "{list} años", "default_title": "Las obras de {artist}", "enter": "Entrar",
         "lang_name": "Español", "locale": "es_ES", "count": "{n} obras",
+        "about": "Los dibujos de {artist}, guardados año a año: cada uno con la edad que tenía al "
+                 "hacerlo y, a veces, su historia.",
+        "made_with": "Hecho con",
+        "techniques": ["lápiz", "lápices de colores", "ceras", "rotulador", "témpera", "acuarela",
+                       "pintura de dedos", "tiza", "collage", "plastilina", "digital", "técnica mixta"],
         "summary": "{n} dibujos y obras de {artist}, de {first} a {last}.", "summary_one": "{n} dibujos y obras de {artist}, de {first}.",
         "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
                   "para minería de textos y datos o para entrenar inteligencia artificial "
@@ -53,6 +58,11 @@ STRINGS = {
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
         "ages_many": "ages {list}", "default_title": "The art of {artist}", "enter": "Log in",
         "lang_name": "English", "locale": "en_GB", "count": "{n} pieces",
+        "about": "{artist}'s drawings, kept year by year: each one with the age it was made at "
+                 "and, sometimes, its story.",
+        "made_with": "Made with",
+        "techniques": ["pencil", "coloured pencils", "crayons", "marker", "poster paint", "watercolour",
+                       "finger paint", "chalk", "collage", "modelling clay", "digital", "mixed media"],
         "summary": "{n} drawings and pieces by {artist}, {first} to {last}.", "summary_one": "{n} drawings and pieces by {artist}, from {first}.",
         "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
                   "mining or to train artificial intelligence, is not permitted "
@@ -121,6 +131,11 @@ def load_config(root):
     # see the `site` workflow); after each save the admin asks that repo's pages.yml to run.
     if cfg.get("admin_deploy") and not re.match(r"^[\w.-]+/[\w.-]+$", cfg["admin_deploy"]):
         fail("trazos.toml: admin_deploy must look like owner/repo")
+    # `techniques = ["ceras", ...]`: the admin's pick-list for a piece's technique (else a stock list
+    # in the site's language). A technique already on a piece stays in the list either way.
+    tech = cfg.get("techniques")
+    if tech is not None and (not isinstance(tech, list) or any(not isinstance(x, str) or not x.strip() for x in tech)):
+        fail("trazos.toml: techniques must be a list of names")
     return cfg
 
 
@@ -324,7 +339,8 @@ class Site:
         enter = f' <a class="enter" href="{res}admin/">{t["enter"]}</a>' if self.cfg.get("admin") else ""
         switch = "".join(f'<a class="lang" lang="{l}" hreflang="{l}" href="{e(self.href(l, path, up))}">'
                          f'{STRINGS[l]["lang_name"]}</a>' for l in self.cfg["languages"] if l != self.lang)
-        footer = f'<footer><p>{e(rights)}{enter}</p></footer>\n' if rights or enter else ""
+        made = f' {t["made_with"]} <a class="made" href="https://jirulabs.com/trazos/">trazos</a>.'
+        footer = f'<footer><p>{e(rights)}{made}{enter}</p></footer>\n'
         return f"""<!doctype html>
 <html lang="{e(self.lang)}">
 <head>
@@ -440,6 +456,19 @@ def protect(out):
     (out / ".well-known" / "tdmrep.json").write_text('[{"location": "/*", "tdm-reservation": 1}]\n')
 
 
+def techniques(cfg, pieces):
+    """The admin's technique pick-list: `techniques` (or the stock list), then any other technique a
+    piece already has, so choosing from the list never loses what is written."""
+    names, seen = [], set()
+    for x in (cfg.get("techniques") or STRINGS[cfg["lang"]]["techniques"]) + sorted(
+            str(p.get("technique", "")) for p in pieces):
+        x = x.strip()
+        if x and x.casefold() not in seen:
+            seen.add(x.casefold())
+            names.append(x)
+    return names
+
+
 def admin_page(root, out, cfg, pieces):
     """/admin/: a static login page. The browser does the rest against the GitHub API: the token is
     stored encrypted with the admin password (admin-key.json), so there is no server at all."""
@@ -462,6 +491,7 @@ def admin_page(root, out, cfg, pieces):
             "lang": cfg["lang"],
             "committer": cfg.get("admin_committer", ""),
             "settings": {k: raw.get(k) for k in ("title", "artist", "lang", "rights", "protect") if k in raw},
+            "techniques": techniques(cfg, pieces), "default_techniques": STRINGS[cfg["lang"]]["techniques"],
             "pieces": items}
     (d / "data.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     (d / "index.html").write_text(f"""<!doctype html>
@@ -524,7 +554,11 @@ def write_language(site, pieces, out):
             ages = sorted({a for p in items for a in p.get("age_span", [])})
             sub = f" <small>({e(site.ages(ages))})</small>" if ages else ""
             parts.append(f'<section><h2 id="y{year}">{year}{sub}</h2>{site.grid(items)}</section>')
-        body = "\n".join(parts)
+        # One plain line on what the site is: `about` / `about_<lang>` in trazos.toml, "" for none.
+        about = site.cfg.get("about") if site.primary else site.cfg.get(f"about_{site.lang}")
+        if about is None:
+            about = t["about"].format(artist=site.cfg["artist"])
+        body = (f'<p class="about">{e(about)}</p>\n' if about else "") + "\n".join(parts)
     else:
         body = f'<p class="empty">{t["empty"]}</p>'
     write("index.html", site.page(site.title, body, "index.html", cover, summary(site, pieces)))

@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
         with:
-          repository: nyakojiru/trazos
+          repository: jiru-labs/trazos
           ref: v0.1.2
           path: .trazos
       - run: python3 .trazos/build.py .

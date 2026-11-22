@@ -5,7 +5,7 @@ child's drawings (or your own work) year after year, and trazos turns them into 
 quiet static website: a timeline by year and age, tags, favourites, and each piece
 with the story in the artist's own words.
 
-[Live demo](https://nyakojiru.github.io/trazos/) · [Español](#en-español)
+[Live demo](https://jirulabs.com/trazos/) · [Español](#en-español)
 
 - **Anonymous by default.** The site shows one first name or pseudonym. Ages and
   years, never birthdays or places.
@@ -147,8 +147,8 @@ its history even after you delete it. To keep the artwork out of every public hi
   concurrency: { group: pages, cancel-in-progress: true }
   jobs:
     site:
-      uses: nyakojiru/trazos/.github/workflows/site.yml@v0.12.0
-      with: { content: owner/site-contenido, trazos_ref: v0.12.0 }
+      uses: jiru-labs/trazos/.github/workflows/site.yml@v0.12.1
+      with: { content: owner/site-contenido, trazos_ref: v0.12.1 }
       secrets: { content_key: "${{ secrets.CONTENT_KEY }}" }
   ```
 

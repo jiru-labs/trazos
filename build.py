@@ -480,9 +480,13 @@ def write_language(site, pieces, out):
     for sub in ("piece", "tag"):
         (d / sub).mkdir(parents=True, exist_ok=True)
     write = lambda rel, html_: (d / rel).write_text(html_, encoding="utf-8")
-    # The picture a shared link to the archive shows: the newest favourite, else the newest piece.
+    # The picture a shared link to the archive shows: `cover = "<id>"` in trazos.toml, else the
+    # newest favourite, else the newest piece.
     favs_all = [p for p in pieces if p["favourite"]]
-    cover = (favs_all or pieces)[-1] if pieces else None
+    cover = next((p for p in pieces if p["id"] == site.cfg.get("cover")), None)
+    if site.cfg.get("cover") and not cover and site.primary:
+        print(f"trazos: cover {site.cfg['cover']!r} is not a visible piece; using the default", file=sys.stderr)
+    cover = cover or ((favs_all or pieces)[-1] if pieces else None)
 
     # Timeline, newest year first
     if pieces:

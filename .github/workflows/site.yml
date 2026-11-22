@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,5 +41,14 @@ jobs:
           path: public
           include-hidden-files: true   # .well-known/tdmrep.json (protect)
           retention-days: 1            # the built site (with the images) is not kept around
+      # deploy-pages sometimes asks for the artifact before GitHub lists it ("Fetching artifact
+      # metadata failed" / "No artifacts named github-pages": 3 of 5 Aurelia runs on 22-11-2026,
+      # none overlapping), so one more try after a pause before the run is called failed.
       - id: deploy
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+      - id: deploy2
+        if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v5

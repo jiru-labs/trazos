@@ -19,7 +19,7 @@ const S = {
     hidden: "Quitada de la web (no se borra: sigue en el archivo y aquí)", removed: "Quitadas de la web", badge_removed: "quitada",
     sync: "Sincronizar ahora", sync_help: "Trae ya las fotos nuevas de la carpeta de origen, sin esperar a la sincronización diaria.",
     sync_asked: "Pedido. Lo nuevo aparece en la web en unos minutos.",
-    token: "Token de GitHub", bad_token: "Ese token no es «fine-grained» (github_pat_…) o no puede escribir en {repo}.",
+    token: "Token de GitHub", not_pat: "Lo que hay en «Token de GitHub» no es un token: tiene que empezar por github_pat_. Pégalo con el botón de copiar de GitHub; caracteres pegados:", bad_token: "Ese token no es «fine-grained» (github_pat_…) o no puede escribir en {repo}.",
     bad_pw: "Las contraseñas no coinciden o tienen menos de 12 caracteres.",
     pieces: "Obras", settings: "Ajustes", logout: "Salir", save: "Guardar",
     saved: "Guardado. La web se actualiza en 1–2 minutos.", error: "No se guardó",
@@ -44,7 +44,7 @@ const S = {
     hidden: "Off the site (not deleted: it stays in the archive and here)", removed: "Off the site", badge_removed: "off the site",
     sync: "Sync now", sync_help: "Bring in the new photos from the source folder now, without waiting for the daily sync.",
     sync_asked: "Requested. The new pieces show on the site in a few minutes.",
-    token: "GitHub token", bad_token: "That token is not fine-grained (github_pat_…) or cannot write to {repo}.",
+    token: "GitHub token", not_pat: "What is in «GitHub token» is not a token: it must start with github_pat_. Paste it with GitHub's copy button; characters pasted:", bad_token: "That token is not fine-grained (github_pat_…) or cannot write to {repo}.",
     bad_pw: "The passwords differ or are shorter than 12 characters.",
     pieces: "Pieces", settings: "Settings", logout: "Log out", save: "Save",
     saved: "Saved. The site updates in 1–2 minutes.", error: "Not saved",
@@ -212,7 +212,9 @@ function setupView(back) {
   const out = h("div");
   const form = h("form", { onsubmit: async (ev) => {
     ev.preventDefault();
-    const pw = form.elements.namedItem("password").value, tk = form.elements.namedItem("token").value.trim();
+    const pw = form.elements.namedItem("password").value, tk = form.elements.namedItem("token").value.replace(/\s+/g, "");
+    // A password manager can fill this field; never send that to GitHub, and say what was there instead.
+    if (!/^github_pat_[A-Za-z0-9_]{20,}$/.test(tk)) return out.replaceChildren(msg(fmt(T.not_pat) + ` (${tk.length})`, true));
     if (pw.length < 12 || pw !== form.elements.namedItem("password2").value) return out.replaceChildren(msg(T.bad_pw, true));
     busy(form, true);
     try {
@@ -232,7 +234,7 @@ function setupView(back) {
     }
   } },
     h("label", {}, T.user, h("input", { type: "text", name: "user", value: "admin", autocomplete: "username", readonly: true })),
-    h("label", {}, T.token, h("input", { type: "password", name: "token", autocomplete: "off", required: true })),
+    h("label", {}, T.token, h("input", { type: "text", name: "token", autocomplete: "off", autocapitalize: "none", spellcheck: "false", "data-lpignore": "true", "data-1p-ignore": "true", placeholder: "github_pat_…", required: true })),
     h("label", {}, T.password, h("input", { type: "password", name: "password", autocomplete: "new-password", minlength: "12", required: true })),
     h("label", {}, T.password2, h("input", { type: "password", name: "password2", autocomplete: "new-password", minlength: "12", required: true })),
     h("button", {}, T.save));

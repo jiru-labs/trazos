@@ -147,8 +147,8 @@ its history even after you delete it. To keep the artwork out of every public hi
   concurrency: { group: pages, cancel-in-progress: true }
   jobs:
     site:
-      uses: jiru-labs/trazos/.github/workflows/site.yml@v0.12.1
-      with: { content: owner/site-contenido, trazos_ref: v0.12.1 }
+      uses: jiru-labs/trazos/.github/workflows/site.yml@v0.12.2
+      with: { content: owner/site-contenido, trazos_ref: v0.12.2 }
       secrets: { content_key: "${{ secrets.CONTENT_KEY }}" }
   ```
 

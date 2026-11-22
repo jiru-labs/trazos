@@ -43,7 +43,7 @@ STRINGS = {
         "lang_name": "Español", "locale": "es_ES", "count": "{n} obras",
         "about": "Los dibujos de {artist}, guardados año a año: cada uno con la edad que tenía al "
                  "hacerlo y, a veces, su historia.",
-        "made_with": "Hecho con",
+        "made_with": "Hecho con", "by_jiru": "de", "language": "Idioma",
         "techniques": ["lápiz", "lápices de colores", "ceras", "rotulador", "témpera", "acuarela",
                        "pintura de dedos", "tiza", "collage", "plastilina", "digital", "técnica mixta"],
         "summary": "{n} dibujos y obras de {artist}, de {first} a {last}.", "summary_one": "{n} dibujos y obras de {artist}, de {first}.",
@@ -60,7 +60,7 @@ STRINGS = {
         "lang_name": "English", "locale": "en_GB", "count": "{n} pieces",
         "about": "{artist}'s drawings, kept year by year: each one with the age it was made at "
                  "and, sometimes, its story.",
-        "made_with": "Made with",
+        "made_with": "Made with", "by_jiru": "by", "language": "Language",
         "techniques": ["pencil", "coloured pencils", "crayons", "marker", "poster paint", "watercolour",
                        "finger paint", "chalk", "collage", "modelling clay", "digital", "mixed media"],
         "summary": "{n} drawings and pieces by {artist}, {first} to {last}.", "summary_one": "{n} drawings and pieces by {artist}, from {first}.",
@@ -337,9 +337,13 @@ class Site:
         custom = self.cfg.get("rights") if self.primary else self.cfg.get(f"rights_{self.lang}")
         rights = custom or (t["rights"].format(artist=self.cfg["artist"]) if self.cfg["protect"] else "")
         enter = f' <a class="enter" href="{res}admin/">{t["enter"]}</a>' if self.cfg.get("admin") else ""
-        switch = "".join(f'<a class="lang" lang="{l}" hreflang="{l}" href="{e(self.href(l, path, up))}">'
-                         f'{STRINGS[l]["lang_name"]}</a>' for l in self.cfg["languages"] if l != self.lang)
-        made = f' {t["made_with"]} <a class="made" href="https://jirulabs.com/trazos/">trazos</a>.'
+        # Every visitor picks the language here: the current one marked, the others as links.
+        switch = "".join(f'<b class="lang" aria-current="true">{STRINGS[l]["lang_name"]}</b>' if l == self.lang else
+                         f'<a class="lang" lang="{l}" hreflang="{l}" href="{e(self.href(l, path, up))}">'
+                         f'{STRINGS[l]["lang_name"]}</a>' for l in self.cfg["languages"])
+        switch = f'<span class="langs" role="group" aria-label="{t["language"]}">{switch}</span>' if len(self.cfg["languages"]) > 1 else ""
+        made = (f' {t["made_with"]} <a class="made" href="https://jirulabs.com/trazos/">trazos</a>, '
+                f'{t["by_jiru"]} <a class="made" href="https://jirulabs.com/">Jiru Labs</a>.')
         footer = f'<footer><p>{e(rights)}{made}{enter}</p></footer>\n'
         return f"""<!doctype html>
 <html lang="{e(self.lang)}">

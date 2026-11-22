@@ -26,7 +26,7 @@ const S = {
     title: "Título", story: "Historia", artists: "Artistas (vacío = solo {artist}; varios, separados por comas)", technique: "Técnica", no_technique: "—", techniques: "Técnicas para elegir (separadas por comas; vacío = las de serie)", tags: "Etiquetas (separadas por comas)",
     favourite: "Favorito", year: "Año", month: "Mes (no se muestra; solo ordena)", no_month: "Sin mes",
     age: "Edad (5, o 4-5)", original: "del archivo", reset: "Vacía un campo y vuelve el del archivo.",
-    site_title: "Título de la web", artist: "Nombre de la artista", lang: "Idioma",
+    site_title: "Título de la web", artist: "Nombre de la artista",
     rights: "Aviso de derechos (vacío = el de serie)", protect: "Proteger (fuera de buscadores e IA)",
     back: "← Obras", edited: "editada", untitled: "Sin título", loading: "Cargando…",
     change_pw: "Cambiar la contraseña", new_pw: "Contraseña nueva", pw_changed: "Contraseña cambiada.",
@@ -51,7 +51,7 @@ const S = {
     title: "Title", story: "Story", artists: "Artists (empty = only {artist}; several, comma separated)", technique: "Technique", no_technique: "—", techniques: "Techniques to choose from (comma separated; empty = the stock ones)", tags: "Tags (comma separated)",
     favourite: "Favourite", year: "Year", month: "Month (never shown; only orders)", no_month: "No month",
     age: "Age (5, or 4-5)", original: "from the file", reset: "Clear a field to bring back the one from the file.",
-    site_title: "Site title", artist: "Artist's name", lang: "Language",
+    site_title: "Site title", artist: "Artist's name",
     rights: "Rights notice (empty = the default)", protect: "Protect (no search engines, no AI)",
     back: "← Pieces", edited: "edited", untitled: "Untitled", loading: "Loading…",
     change_pw: "Change the password", new_pw: "New password", pw_changed: "Password changed.",
@@ -409,7 +409,6 @@ async function settingsView() {
     let t = toml;
     t = tomlSet(t, "artist", artist);
     t = tomlSet(t, "title", form.elements.namedItem("site_title").value.trim() || null);
-    t = tomlSet(t, "lang", form.elements.namedItem("lang").value);
     t = tomlSet(t, "rights", form.elements.namedItem("rights").value.trim() || null);
     t = tomlSet(t, "protect", form.elements.namedItem("protect").checked);
     const tech = splitList(form.elements.namedItem("techniques").value);
@@ -430,8 +429,6 @@ async function settingsView() {
   } },
     h("label", {}, T.site_title, h("input", { type: "text", name: "site_title", value: get("title") || "" })),
     h("label", {}, T.artist, h("input", { type: "text", name: "artist", value: get("artist") || "", required: true })),
-    h("label", {}, T.lang, h("select", { name: "lang" },
-      ["es", "en"].map((l) => h("option", { value: l, selected: (get("lang") || "es") === l }, l)))),
     h("label", {}, T.rights, h("textarea", { name: "rights" }, get("rights") || "")),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "protect", checked: get("protect") !== false }), T.protect),
     h("label", {}, T.techniques, h("textarea", { name: "techniques", placeholder: (data.default_techniques || []).join(", ") },

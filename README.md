@@ -38,7 +38,8 @@ with the story in the artist's own words.
 ## Languages, link previews and icon
 
 - **Both languages.** `languages = ["es", "en"]` builds the site in each: `lang` at the root,
-  the others under `/en/` (or `/es/`), with a link in the menu to switch. Only the site's own
+  the others under `/en/` (or `/es/`). Each visitor switches with the *English · Español* pill in
+  the menu, which marks the language they are reading; the admin has no language setting. Only the site's own
   words change; titles, stories and tags are shown as you wrote them.
 - **Link previews.** Set `url = "https://your-site.example"` and a link shared in WhatsApp,
   Telegram, Slack and the like shows the piece's title, picture and facts (Open Graph tags).
@@ -53,7 +54,7 @@ with the story in the artist's own words.
   `description_<lang>`, or how many pieces and the years they span.
 - **What the site is.** The home page opens with one plain line ("Ada's drawings, kept year by
   year: each one with the age it was made at and, sometimes, its story."), and the footer says
-  *Made with trazos*. Replace the line with `about` / `about_<lang>`, or `about = ""` for none.
+  *Made with trazos, by Jiru Labs*. Replace the line with `about` / `about_<lang>`, or `about = ""` for none.
 - **Icon.** Every site gets a page icon (a sheet of paper with one crayon stroke) as
   `favicon.svg`, `favicon.ico` and `apple-touch-icon.png`. Put your own files with those
   names in `site/` to replace it.
@@ -140,7 +141,7 @@ the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each sa
 - **Log in** with user `admin` and that password. The token is decrypted in that tab only and
   forgotten when the tab closes. Change the password in *Settings*.
 - **Edit** the title, story, artists (one or more, comma separated, shown as «By …» on the piece; empty = only the site's artist), technique, tags, favourite, year, month and age of any piece, and
-  the basic settings (site title, artist, language, rights notice, protection). The technique
+  the basic settings (site title, artist, rights notice, protection; the language is the visitor's choice, below). The technique
   is picked from a list: `techniques = ["crayons", ...]` in `trazos.toml`, also editable in
   *Settings* (empty = a stock list in the site's language); a technique a piece already has
   always stays on the list. Piece edits go to
@@ -220,7 +221,7 @@ Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
 Con `languages = ["es", "en"]` la web sale también en inglés, bajo `/en/`, con un enlace para cambiar
 de idioma (se traduce la web, no los títulos ni las historias). Con `url = "https://tu-web"` un enlace
 compartido por WhatsApp o Telegram muestra el título y el dibujo. La portada es el favorito más reciente, o la obra que digas con `cover = "<id>"`; mejor aún, una tarjeta hecha para compartir en `site/share.jpg` (o `share-<idioma>.jpg`), que `tools/share-card.py` compone con tres dibujos, el título y una línea. Cada web lleva su icono de pestaña;
-La portada abre con una línea sencilla sobre qué es la web («Los dibujos de Ada, guardados año a año…») y el pie dice «Hecho con trazos»; cámbiala con `about` / `about_<idioma>`, o `about = ""` para quitarla.
+La portada abre con una línea sencilla sobre qué es la web («Los dibujos de Ada, guardados año a año…») y el pie dice «Hecho con trazos, de Jiru Labs»; cámbiala con `about` / `about_<idioma>`, o `about = ""` para quitarla.
 para usar uno tuyo, pon `favicon.svg`, `favicon.ico` y `apple-touch-icon.png` en `site/`.
 Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba). La técnica se elige de una lista (`techniques = ["ceras", ...]`, también en Ajustes; vacía = una de serie).
 

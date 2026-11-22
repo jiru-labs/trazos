@@ -95,4 +95,6 @@ footer { max-width: 1100px; margin: 0 auto; padding: 1.5rem 16px 2.5rem; border-
 footer p { max-width: 75ch; margin: 0; }
 .about { max-width: 60ch; margin: 0 0 1.5rem; color: var(--muted); }
 footer .made { color: var(--muted); }
+footer .gh { display: inline-flex; vertical-align: -.2em; margin-left: .2rem; padding: .15rem; color: var(--muted); border-radius: 4px; }
+footer .gh:hover, footer .gh:focus-visible { color: var(--fg); }
 footer .enter { color: var(--muted); margin-left: .4rem; }

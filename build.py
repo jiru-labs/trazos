@@ -25,7 +25,7 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parent
 ASSETS = ENGINE / "assets"
 
-FIELDS = ("id", "year", "month", "order", "age", "technique", "title", "tags", "favourite", "hidden")
+FIELDS = ("id", "year", "month", "order", "age", "technique", "title", "tags", "favourite", "hidden", "artists")
 # Hand-made ids look like 2026-001; tools/ingest.py uses a short content hash.
 ID_RE = re.compile(r"^(\d{4}-\d{3}|[0-9a-f]{10})$")
 AGE_RE = re.compile(r"^(\d+)(?:\s*[-–]\s*(\d+))?$")
@@ -33,7 +33,7 @@ AGE_RE = re.compile(r"^(\d+)(?:\s*[-–]\s*(\d+))?$")
 STRINGS = {
     "es": {
         "by_year": "Por año", "tags": "Etiquetas", "favourites": "Favoritos",
-        "untitled": "Sin título", "empty": "Todavía no hay obras aquí. Pronto.",
+        "by": "De {names}", "and": " y ", "untitled": "Sin título", "empty": "Todavía no hay obras aquí. Pronto.",
         "no_tags": "Sin etiquetas todavía.", "no_favs": "Sin favoritos todavía.",
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
         "ages_many": "{list} años", "default_title": "Las obras de {artist}", "enter": "Entrar",
@@ -43,7 +43,7 @@ STRINGS = {
     },
     "en": {
         "by_year": "By year", "tags": "Tags", "favourites": "Favourites",
-        "untitled": "Untitled", "empty": "No pieces here yet. Soon.",
+        "by": "By {names}", "and": " and ", "untitled": "Untitled", "empty": "No pieces here yet. Soon.",
         "no_tags": "No tags yet.", "no_favs": "No favourites yet.",
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
         "ages_many": "ages {list}", "default_title": "The art of {artist}", "enter": "Log in",
@@ -175,6 +175,8 @@ def parse(path, pieces_dir):
         fail(f"{path.name}: order must be a whole number")
     meta["order"] = int(meta.get("order") or 0)
     meta["tags"] = [t.strip().lower() for t in meta.get("tags", "").split(",") if t.strip()]
+    # `artists`: who made this piece when it is not (only) the site's artist, comma separated.
+    meta["artists"] = [a.strip() for a in meta.get("artists", "").split(",") if a.strip()]
     meta["favourite"] = meta.get("favourite", "").lower() in ("yes", "sí", "si", "true")
     # `hidden: yes` takes a piece off the site (pages, images and the admin's public data.json)
     # without deleting it: it stays in the repo, and the admin lists it from there to bring it back.
@@ -354,7 +356,9 @@ def build(root):
 
     for p in pieces:
         label = p.get("title") or t["untitled"]
-        facts = " · ".join(x for x in (str(p["year"]), site.age(p["age"]) if p.get("age") else "",
+        names = p["artists"]
+        by = t["by"].format(names=", ".join(names[:-1]) + t["and"] + names[-1] if len(names) > 1 else names[0]) if names else ""
+        facts = " · ".join(x for x in (by, str(p["year"]), site.age(p["age"]) if p.get("age") else "",
                                        p.get("technique", "")) if x)
         tags = "".join(f'<a href="../tag/{e(slug(x))}.html">{e(x)}</a>' for x in p["tags"])
         story = "".join(f"<p>{e(s)}</p>" for s in p["story"])

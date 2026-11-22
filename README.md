@@ -114,7 +114,7 @@ the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each sa
   with that password (PBKDF2-SHA256, 600 000 rounds, AES-GCM) and committed as `admin-key.json`.
 - **Log in** with user `admin` and that password. The token is decrypted in that tab only and
   forgotten when the tab closes. Change the password in *Settings*.
-- **Edit** the title, story, technique, tags, favourite, year, month and age of any piece, and
+- **Edit** the title, story, artists (one or more, comma separated, shown as «By …» on the piece; empty = only the site's artist), technique, tags, favourite, year, month and age of any piece, and
   the basic settings (site title, artist, language, rights notice, protection). Piece edits go to
   `edits/<id>.json` and win over `pieces/<id>.md`, so a re-ingest never undoes them; clear a
   field and the original comes back.
@@ -147,8 +147,8 @@ its history even after you delete it. To keep the artwork out of every public hi
   concurrency: { group: pages, cancel-in-progress: true }
   jobs:
     site:
-      uses: nyakojiru/trazos/.github/workflows/site.yml@v0.11.0
-      with: { content: owner/site-contenido, trazos_ref: v0.11.0 }
+      uses: nyakojiru/trazos/.github/workflows/site.yml@v0.12.0
+      with: { content: owner/site-contenido, trazos_ref: v0.12.0 }
       secrets: { content_key: "${{ secrets.CONTENT_KEY }}" }
   ```
 

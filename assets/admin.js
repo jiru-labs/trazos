@@ -23,7 +23,7 @@ const S = {
     bad_pw: "Las contraseñas no coinciden o tienen menos de 12 caracteres.",
     pieces: "Obras", settings: "Ajustes", logout: "Salir", save: "Guardar",
     saved: "Guardado. La web se actualiza en 1–2 minutos.", error: "No se guardó",
-    title: "Título", story: "Historia", technique: "Técnica", tags: "Etiquetas (separadas por comas)",
+    title: "Título", story: "Historia", artists: "Artistas (vacío = solo {artist}; varios, separados por comas)", technique: "Técnica", tags: "Etiquetas (separadas por comas)",
     favourite: "Favorito", year: "Año", month: "Mes (no se muestra; solo ordena)", no_month: "Sin mes",
     age: "Edad (5, o 4-5)", original: "del archivo", reset: "Vacía un campo y vuelve el del archivo.",
     site_title: "Título de la web", artist: "Nombre de la artista", lang: "Idioma",
@@ -48,7 +48,7 @@ const S = {
     bad_pw: "The passwords differ or are shorter than 12 characters.",
     pieces: "Pieces", settings: "Settings", logout: "Log out", save: "Save",
     saved: "Saved. The site updates in 1–2 minutes.", error: "Not saved",
-    title: "Title", story: "Story", technique: "Technique", tags: "Tags (comma separated)",
+    title: "Title", story: "Story", artists: "Artists (empty = only {artist}; several, comma separated)", technique: "Technique", tags: "Tags (comma separated)",
     favourite: "Favourite", year: "Year", month: "Month (never shown; only orders)", no_month: "No month",
     age: "Age (5, or 4-5)", original: "from the file", reset: "Clear a field to bring back the one from the file.",
     site_title: "Site title", artist: "Artist's name", lang: "Language",
@@ -79,7 +79,7 @@ function h(tag, attrs, ...kids) {
 }
 const show = (...kids) => { app.replaceChildren(...kids); window.scrollTo(0, 0); };
 const msg = (text, bad) => h("p", { class: bad ? "msg bad" : "msg" }, text);
-const fmt = (s) => s.replace("{repo}", data.repo).replace("{deploy}", data.deploy || "");
+const fmt = (s) => s.replace("{repo}", data.repo).replace("{artist}", (data.settings && data.settings.artist) || "").replace("{deploy}", data.deploy || "");
 
 // ---- encoding and crypto ----
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -300,7 +300,7 @@ async function listView() {
   show(h("h1", {}, T.pieces), ...(data.sync ? [syncBox()] : []), ...parts);
 }
 
-const FIELDS = ["title", "story", "technique", "tags", "favourite", "year", "month", "age"];
+const FIELDS = ["title", "story", "artists", "technique", "tags", "favourite", "year", "month", "age"];
 const isYes = (v) => ["yes", "sí", "si", "true"].includes(String(v || "").toLowerCase());
 
 async function pieceView(id) {
@@ -319,12 +319,12 @@ async function pieceView(id) {
     ev.preventDefault();
     const v = {
       title: form.elements.namedItem("title").value.trim(), story: form.elements.namedItem("story").value.trim(), technique: form.elements.namedItem("technique").value.trim(),
-      tags: form.elements.namedItem("tags").value.trim(), year: form.elements.namedItem("year").value.trim(), age: form.elements.namedItem("age").value.trim(), month: form.elements.namedItem("month").value,
+      tags: form.elements.namedItem("tags").value.trim(), artists: form.elements.namedItem("artists").value.trim(), year: form.elements.namedItem("year").value.trim(), age: form.elements.namedItem("age").value.trim(), month: form.elements.namedItem("month").value,
     };
     if (v.year && !(/^\d{4}$/.test(v.year) && +v.year >= 1900 && +v.year <= 2200)) return out.replaceChildren(msg(T.bad_year, true));
     if (v.age && !/^\d+(\s*[-–]\s*\d+)?$/.test(v.age)) return out.replaceChildren(msg(T.bad_age, true));
     const next = {};
-    for (const k of ["title", "story", "technique", "tags", "year", "age"]) {
+    for (const k of ["title", "story", "artists", "technique", "tags", "year", "age"]) {
       if (v[k] && v[k] !== String(base[k] || "").trim()) next[k] = v[k];  // empty = back to the original
     }
     if (v.month !== String(base.month || "")) next.month = v.month;
@@ -348,7 +348,7 @@ async function pieceView(id) {
   } },
     text("title", T.title),
     h("label", {}, T.story, hint("story", "…"), h("textarea", { name: "story" }, cur.story || "")),
-    text("technique", T.technique), text("tags", T.tags),
+    text("artists", fmt(T.artists)), text("technique", T.technique), text("tags", T.tags),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "favourite", checked: isYes(cur.favourite) }), T.favourite),
     h("label", {}, T.year, hint("year"), h("input", { type: "number", name: "year", min: "1900", max: "2200", value: cur.year || "" })),
     h("label", {}, T.month, hint("month", base.month ? months[base.month - 1] : T.no_month),

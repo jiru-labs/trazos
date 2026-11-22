@@ -71,7 +71,9 @@ python3 build.py path/to/your-archive
 - Optional `<same name>.txt` next to it: first lines `technique:`, `tags:`, `favourite: yes`,
   `month: june`, then the story.
 - Each photo is turned upright, **cropped to the sheet of paper** when one is found (OpenCV;
-  otherwise left whole), resized and saved as JPEG with no metadata at all. HEIC works.
+  otherwise left whole; `--no-crop` always keeps the whole photo), resized and saved as JPEG
+  with no metadata at all. HEIC works. Images are made once: after changing `--no-crop`,
+  run once with `--reprocess` to redo them all.
 - Ids are a short hash of the original, so renaming a file updates the piece in place, and
   deleting it removes the piece. An empty source folder is refused, never read as "delete all".
 - The birthdate is only used to compute ages; it is never written to the archive.

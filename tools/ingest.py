@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ingest a folder of originals (photos or scans) into a trazos content folder.
 
-    ingest.py SOURCE_DIR CONTENT_DIR --state STATE.json [--birthdate YYYY-MM-DD] [--no-crop]
+    ingest.py SOURCE_DIR CONTENT_DIR --state STATE.json [--birthdate YYYY-MM-DD] [--no-crop] [--reprocess]
     ingest.py SOURCE_DIR --preview OUT_DIR [--no-crop]      (process only, write nothing else)
 
 The source folder is the archive and is never modified. Each run makes the site match it:
@@ -23,7 +23,9 @@ photographed, not when it was made. Those pieces, and any dated only by `año:` 
 file's mtime, stay "without month", and their age is computed from the year alone.
 
 Images are decoded (HEIC too), turned upright, cropped to the sheet of paper when one is
-found (OpenCV), resized to 1600/600 px and written as JPEG WITHOUT any metadata.
+found (OpenCV; --no-crop keeps the whole photo), resized to 1600/600 px and written as JPEG
+WITHOUT any metadata. Images are made once; --reprocess makes them all again (after changing
+--no-crop, say), and the pieces it rewrote count as updated.
 The birthdate (for ages) is read from --birthdate or $TRAZOS_BIRTHDATE and never written
 anywhere: only the resulting age is.
 
@@ -241,6 +243,7 @@ def main():
     ap.add_argument("--state", type=Path)
     ap.add_argument("--birthdate", default=os.environ.get("TRAZOS_BIRTHDATE"))
     ap.add_argument("--no-crop", action="store_true")
+    ap.add_argument("--reprocess", action="store_true")
     ap.add_argument("--preview", type=Path)
     a = ap.parse_args()
     files = sources(a.source)
@@ -305,12 +308,14 @@ def main():
         md = sidecar(pid, year, month, age_label(when, birth), title, fields, story, per_year[year])
         md_path = pieces / f"{pid}.md"
         image_missing = not (pieces / f"{pid}.jpg").exists()
-        if image_missing:
+        if image_missing or a.reprocess:
             im, _ = process(p, not a.no_crop)
             save_web(im, pieces, pid)
         if image_missing or not md_path.exists() or md_path.read_text(encoding="utf-8") != md:
             md_path.write_text(md, encoding="utf-8")
             (added if not prev else updated).append(pid)
+        elif a.reprocess:
+            updated.append(pid)
         state[h] = {"id": pid, "sig": sig, "name": p.name}
 
     removed = []

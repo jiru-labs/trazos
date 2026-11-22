@@ -88,8 +88,8 @@ python3 build.py path/to/your-archive
 - **Videos** (`.mp4 .mov .m4v .webm .mkv .avi .3gp`) need `ffmpeg`. Each becomes an MP4 that
   plays in every browser (H.264, long side at most 1280 px), **without sound** and with every
   tag dropped (a phone video carries its GPS position, the phone model and the date), plus a
-  poster frame for the grid. A 31 s iPhone clip went from 11.3 MB to 5.4 MB. The page loads
-  nothing until play is pressed. Without ffmpeg, videos are skipped and kept as they were.
+  poster frame for the grid. A 31 s iPhone clip went from 11.3 MB to 5.4 MB. On its page the
+  video starts by itself and loops, silent, like a GIF; grids load only the poster. Without ffmpeg, videos are skipped and kept as they were.
 - Ids are a short hash of the original, so renaming a file updates the piece in place, and
   deleting it removes the piece. An empty source folder is refused, never read as "delete all".
 - The birthdate is only used to compute ages; it is never written to the archive.

@@ -266,10 +266,15 @@ def parse(path, pieces_dir):
 
 
 def media(site, p, label):
-    """The piece itself: its image, or its video with the image as poster (nothing loads until play)."""
+    """The piece itself: its image, or its video with the image as poster.
+
+    Videos are silent, so they start on their own and loop, like a GIF: the page has no
+    JavaScript (CSP script-src 'none'), and with preload="none" a click or tap on the picture
+    did nothing, only the small play button worked. Muted autoplay is allowed everywhere.
+    Grids still load only the poster; the video loads on its own page."""
     src = f'../{site.base}img/{e(p["id"])}'
     if p.get("video"):
-        return (f'<video controls muted playsinline preload="none" poster="{src}.jpg" aria-label="{e(label)}">'
+        return (f'<video controls muted autoplay loop playsinline preload="auto" poster="{src}.jpg" aria-label="{e(label)}">'
                 f'<source src="{src}.mp4" type="video/mp4"></video>')
     return f'<img src="{src}.jpg" alt="{e(label)}">'
 

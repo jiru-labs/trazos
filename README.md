@@ -45,6 +45,12 @@ with the story in the artist's own words.
   `protect` lets those preview fetchers in (they read the one shared page and do not index);
   search engines and AI crawlers stay out. Without `url` a preview shows the title only.
   The archive's own link shows the newest favourite; `cover = "<piece id>"` picks another.
+  A bare drawing there reads as a link to an image, so the archive's pages prefer a card
+  made for sharing: `site/share.jpg` (or `site/share-<lang>.jpg`), 1200x630, which
+  `tools/share-card.py` composes from up to three pieces, the title and a line (needs
+  ImageMagick; run it where you have it, the build itself stays dependency-free). Each
+  piece's own page keeps its drawing. The description is `description` /
+  `description_<lang>`, or how many pieces and the years they span.
 - **Icon.** Every site gets a page icon (a sheet of paper with one crayon stroke) as
   `favicon.svg`, `favicon.ico` and `apple-touch-icon.png`. Put your own files with those
   names in `site/` to replace it.
@@ -207,7 +213,7 @@ mes es va al final de su año, hasta que lo nombres `2025-06 …` o pongas `mes:
 Pon `lang = "es"` en `trazos.toml` y sigue los pasos de arriba.
 Con `languages = ["es", "en"]` la web sale también en inglés, bajo `/en/`, con un enlace para cambiar
 de idioma (se traduce la web, no los títulos ni las historias). Con `url = "https://tu-web"` un enlace
-compartido por WhatsApp o Telegram muestra el título y el dibujo. La portada es el favorito más reciente, o la obra que digas con `cover = "<id>"`. Cada web lleva su icono de pestaña;
+compartido por WhatsApp o Telegram muestra el título y el dibujo. La portada es el favorito más reciente, o la obra que digas con `cover = "<id>"`; mejor aún, una tarjeta hecha para compartir en `site/share.jpg` (o `share-<idioma>.jpg`), que `tools/share-card.py` compone con tres dibujos, el título y una línea. Cada web lleva su icono de pestaña;
 para usar uno tuyo, pon `favicon.svg`, `favicon.ico` y `apple-touch-icon.png` en `site/`.
 Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba).
 

@@ -41,6 +41,7 @@ STRINGS = {
         "age_one": "{n} año", "age_many": "{n} años", "and": " y ",
         "ages_many": "{list} años", "default_title": "Las obras de {artist}", "enter": "Entrar",
         "lang_name": "Español", "locale": "es_ES", "count": "{n} obras",
+        "summary": "{n} dibujos y obras de {artist}, de {first} a {last}.", "summary_one": "{n} dibujos y obras de {artist}, de {first}.",
         "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
                   "para minería de textos y datos o para entrenar inteligencia artificial "
                   "(art. 4.3 de la Directiva (UE) 2019/790).",
@@ -52,6 +53,7 @@ STRINGS = {
         "age_one": "age {n}", "age_many": "age {n}", "and": " and ",
         "ages_many": "ages {list}", "default_title": "The art of {artist}", "enter": "Log in",
         "lang_name": "English", "locale": "en_GB", "count": "{n} pieces",
+        "summary": "{n} drawings and pieces by {artist}, {first} to {last}.", "summary_one": "{n} drawings and pieces by {artist}, from {first}.",
         "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
                   "mining or to train artificial intelligence, is not permitted "
                   "(Art. 4(3) of Directive (EU) 2019/790).",
@@ -262,7 +264,19 @@ class Site:
         if cfg.get("url"):
             page = "" if path == "index.html" else path
             tags.append(("og:url", f"{cfg['url']}/{self.sub}{page}"))
-            if piece:
+            # The archive's own pages show a made-for-sharing card when the site has one
+            # (tools/share-card.py): a bare drawing there reads as a link to an image.
+            share = next((f for f in (f"share-{self.lang}.jpg", "share.jpg")
+                          if (self.pieces_dir.parent / "site" / f).is_file()), None)
+            if share and not path.startswith("piece/"):
+                img = self.pieces_dir.parent / "site" / share
+                tags.append(("og:image", f"{cfg['url']}/{share}"))
+                size = jpeg_size(img)
+                if size:
+                    tags += [("og:image:width", str(size[0])), ("og:image:height", str(size[1]))]
+                tags.append(("og:image:alt", self.title))
+                card = "summary_large_image"
+            elif piece:
                 img = self.pieces_dir / f"{piece['id']}.jpg"
                 if img.stat().st_size > PREVIEW_MAX_BYTES:
                     img = self.pieces_dir / f"{piece['id']}-thumb.jpg"
@@ -473,6 +487,18 @@ def admin_page(root, out, cfg, pieces):
 """, encoding="utf-8")
 
 
+def summary(site, pieces):
+    """The archive's one-line description: `description_<lang>` / `description` in trazos.toml, or
+    what and how much, with the years it spans."""
+    cfg = site.cfg
+    own = cfg.get(f"description_{site.lang}") or (cfg.get("description") if site.primary else None)
+    if own or not pieces:
+        return own or ""
+    years = sorted({p["year"] for p in pieces})
+    key = "summary" if years[0] != years[-1] else "summary_one"
+    return site.t[key].format(artist=cfg["artist"], n=len(pieces), first=years[0], last=years[-1])
+
+
 def write_language(site, pieces, out):
     """Every public page in one language; returns the tags."""
     t = site.t
@@ -501,7 +527,7 @@ def write_language(site, pieces, out):
         body = "\n".join(parts)
     else:
         body = f'<p class="empty">{t["empty"]}</p>'
-    write("index.html", site.page(site.title, body, "index.html", cover, site.t["count"].format(n=len(pieces)) if pieces else ""))
+    write("index.html", site.page(site.title, body, "index.html", cover, summary(site, pieces)))
 
     for p in pieces:
         label = p.get("title") or t["untitled"]

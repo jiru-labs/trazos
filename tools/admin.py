@@ -12,9 +12,14 @@ clearing a field brings back the original. Every save rebuilds the site to check
 that would break the build is undone. With --publish, a save is also committed and pushed
 (git), so the site updates on its own.
 
-Login (--password-file FILE): one admin, one password, no sign-up. Set or change it with
-`admin.py --password-file FILE --set-password` (it asks twice; stored as a PBKDF2 hash, keep
-FILE out of git). Changing it logs out every open session. Without --password-file there is
+Login (--password-file FILE): one admin (user "admin"), one password, no sign-up. The front
+page is a portal: "just enter" goes to the public site (--site-url), "log in as admin" asks
+for user and password. Set or change the password with `admin.py --password-file FILE
+--set-password` (it asks twice; stored as a PBKDF2 hash, keep FILE out of git); while there is
+none, the portal offers to create it, but only to a tailnet user (the Tailscale-User-Login
+header that `tailscale serve` adds and Funnel never carries). Changing it logs out every open
+session. Five failures in 15 minutes lock the login, counted apart for tailnet and public
+requests, so the public side cannot lock the tailnet out. Without --password-file there is
 no login: then bind to localhost behind an authenticating proxy, e.g. `tailscale serve` with
 --require-tailscale-user (tagged servers carry no user). The two can be combined.
 Cross-site form posts are refused and the session cookie is SameSite=Strict.
@@ -56,7 +61,12 @@ UI = {
            "rights": "Aviso de derechos (vacío = el de serie)", "protect": "Proteger (fuera de buscadores e IA)",
            "view": "Ver en la web", "back": "← Obras", "error": "No se guardó",
            "edited": "editada", "untitled": "Sin título", "password": "Contraseña", "login": "Entrar", "logout": "Salir",
-           "bad_login": "Contraseña incorrecta.", "locked": "Demasiados intentos: espera 15 minutos."},
+           "user": "Usuario", "password2": "Repite la contraseña",
+           "bad_login": "Usuario o contraseña incorrectos.", "locked": "Demasiados intentos: espera 15 minutos.",
+           "just_enter": "Solo entrar", "just_enter_sub": "ver el archivo", "as_admin": "Entrar como admin",
+           "setup": "Crea la contraseña de admin", "setup_sub": "Usuario: admin. Mínimo 10 caracteres.",
+           "bad_setup": "No coinciden, o tiene menos de 10 caracteres.",
+           "no_password": "El admin todavía no tiene contraseña."},
     "en": {"pieces": "Pieces", "settings": "Settings", "save": "Save", "saved": "Saved.",
            "published": "Saved and published: the site updates in 1-2 minutes.",
            "title": "Title", "story": "Story", "technique": "Technique", "tags": "Tags (comma separated)",
@@ -66,7 +76,12 @@ UI = {
            "rights": "Rights notice (empty = the default)", "protect": "Protect (no search engines, no AI)",
            "view": "View on the site", "back": "← Pieces", "error": "Not saved",
            "edited": "edited", "untitled": "Untitled", "password": "Password", "login": "Log in", "logout": "Log out",
-           "bad_login": "Wrong password.", "locked": "Too many attempts: wait 15 minutes."},
+           "user": "User", "password2": "Repeat the password",
+           "bad_login": "Wrong user or password.", "locked": "Too many attempts: wait 15 minutes.",
+           "just_enter": "Just enter", "just_enter_sub": "see the archive", "as_admin": "Log in as admin",
+           "setup": "Create the admin password", "setup_sub": "User: admin. At least 10 characters.",
+           "bad_setup": "They differ, or it is shorter than 10 characters.",
+           "no_password": "The admin has no password yet."},
 }
 MONTHS = {"es": "enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre",
           "en": "January February March April May June July August September October November December"}
@@ -87,6 +102,10 @@ STYLE = """
 .admin .card .badge { color: var(--violet); font-size: .8rem; }
 .admin nav .logout { display: inline-flex; gap: .4rem; align-items: center; }
 .admin nav .logout button { padding: .2rem .8rem; font-size: .85rem; background: var(--muted); }
+.admin .portal { display: grid; gap: 1.5rem; max-width: 700px; }
+.admin .portal .enter { display: block; padding: 1.1rem 1.4rem; border-radius: 10px; background: var(--card);
+  box-shadow: var(--shadow); text-decoration: none; color: var(--fg); font-weight: 700; font-size: 1.2rem; }
+.admin .portal .enter small { display: block; font-size: .9rem; }
 """
 
 
@@ -100,7 +119,7 @@ class Login:
     ITER, DAYS = 600_000, 30
 
     def __init__(self, path):
-        self.path, self.fails = path, []
+        self.path, self.fails = path, {}
 
     def load(self):
         return json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
@@ -118,19 +137,22 @@ class Login:
         os.chmod(tmp, 0o600)
         tmp.replace(self.path)
 
-    def check(self, pw):
-        """(ok, locked). Five wrong passwords in 15 minutes lock the login for the rest of them."""
+    def has_password(self):
+        return bool(self.load().get("hash"))
+
+    def check(self, user, pw, source="public"):
+        """(ok, locked). Five failures in 15 minutes lock the login for the rest of them, per source."""
         now = time.time()
-        self.fails = [t for t in self.fails if now - t < 900]
-        if len(self.fails) >= 5:
+        fails = self.fails[source] = [t for t in self.fails.get(source, []) if now - t < 900]
+        if len(fails) >= 5:
             return False, True
         d = self.load()
         ok = False
-        if d.get("hash"):
+        if d.get("hash") and user.strip().lower() == "admin":
             _, iters, salt, h = d["hash"].split("$")
             ok = hmac.compare_digest(self.digest(pw, salt, int(iters)), h)
         if not ok:
-            self.fails.append(now)
+            fails.append(now)
             time.sleep(1)
         return ok, False
 
@@ -297,13 +319,13 @@ class Admin:
                 lock.close()
 
     # ---- pages ----
-    def page(self, title, body):
+    def page(self, title, body, nav=True):
         cfg, t = self.cfg(), self.ui()
         return f"""<!doctype html><html lang="{e(cfg['lang'])}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
 <title>{e(title)} · admin</title><link rel="stylesheet" href="/style.css"><style>{STYLE}</style></head>
 <body class="admin"><header><a class="home" href="/">{e(cfg['title'])} · admin</a>
-<nav><a href="/">{t['pieces']}</a><a href="/settings">{t['settings']}</a>{f'<a href="{e(self.site_url)}/">{t["view"]}</a>' if self.site_url else ''}{self.logout_form()}</nav>
+{f"""<nav><a href="/">{t['pieces']}</a><a href="/settings">{t['settings']}</a>{f'<a href="{e(self.site_url)}/">{t["view"]}</a>' if self.site_url else ''}{self.logout_form()}</nav>""" if nav else ''}
 </header><main>{body}</main></body></html>"""
 
     def logout_form(self):
@@ -311,15 +333,27 @@ class Admin:
             return ""
         return f'<form class="logout" method="post" action="/logout"><button>{self.ui()["logout"]}</button></form>'
 
-    def login(self, nxt, error=""):
-        t = self.ui()
+    def login(self, nxt, error="", tailnet=False):
+        """The portal: just enter (the public site) or log in as admin."""
+        t, cfg = self.ui(), self.cfg()
         err = f'<p class="msg bad">{e(error)}</p>' if error else ""
-        body = f"""<h1>{t['login']}</h1>{err}<form method="post" action="/login">
+        enter = (f'<a class="enter" href="{e(self.site_url)}/">{t["just_enter"]} →<small>{t["just_enter_sub"]}</small></a>'
+                 if self.site_url else "")
+        if self.users.has_password():
+            admin_part = f"""<h2>{t['as_admin']}</h2>{err}<form method="post" action="/login">
 <input type="hidden" name="next" value="{e(nxt)}">
-<input type="text" name="user" value="admin" autocomplete="username" hidden>
-<label>{t['password']}<input type="password" name="password" autocomplete="current-password" required autofocus></label>
+<label>{t['user']}<input type="text" name="user" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+<label>{t['password']}<input type="password" name="password" autocomplete="current-password" required></label>
 <button>{t['login']}</button></form>"""
-        return self.page(t["login"], body)
+        elif tailnet:
+            admin_part = f"""<h2>{t['setup']}</h2><p><small>{t['setup_sub']}</small></p>{err}<form method="post" action="/setup">
+<input type="text" name="user" value="admin" autocomplete="username" hidden>
+<label>{t['password']}<input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+<label>{t['password2']}<input type="password" name="password2" autocomplete="new-password" minlength="10" required></label>
+<button>{t['save']}</button></form>"""
+        else:
+            admin_part = f"<h2>{t['as_admin']}</h2><p><small>{t['no_password']}</small></p>"
+        return self.page(t["login"], f'<div class="portal"><h1>{e(cfg["title"])}</h1>{enter}<section>{admin_part}</section></div>', nav=False)
 
     def msg(self, q):
         t = self.ui()
@@ -399,6 +433,9 @@ def handler(admin, require_ts):
                 return False
             return True
 
+        def tailnet(self):
+            return bool(self.headers.get("Tailscale-User-Login"))
+
         def session(self):
             for part in self.headers.get("Cookie", "").split(";"):
                 k, _, v = part.strip().partition("=")
@@ -419,6 +456,7 @@ def handler(admin, require_ts):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Robots-Tag", "noindex, nofollow")
             if cookie:
                 self.send_header("Set-Cookie", cookie)
             self.end_headers()
@@ -450,7 +488,7 @@ def handler(admin, require_ts):
             if u.path == "/style.css":
                 return self.send((build.ASSETS / "style.css").read_bytes(), "text/css")
             if users and u.path == "/login":
-                return self.send(admin.login(q.get("next", ["/"])[0]))
+                return self.send(admin.login(q.get("next", ["/"])[0], tailnet=self.tailnet()))
             if not self.gate(u.path):
                 return
             if u.path == "/":
@@ -484,10 +522,21 @@ def handler(admin, require_ts):
             if users and path == "/login":
                 nxt = form.get("next", "/")
                 nxt = nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"
-                ok, locked = users.check(form.get("password", ""))
+                ok, locked = users.check(form.get("user", ""), form.get("password", ""),
+                                         "tailnet" if self.tailnet() else "public")
                 if not ok:
-                    return self.send(admin.login(nxt, t["locked"] if locked else t["bad_login"]), code=401)
+                    return self.send(admin.login(nxt, t["locked"] if locked else t["bad_login"], self.tailnet()), code=401)
                 return self.redirect(nxt, self.cookie_header(users.cookie(), Login.DAYS * 86400))
+            if users and path == "/setup":
+                # First password only, and only from the tailnet: on the public side nobody may claim it.
+                with WRITE:
+                    if users.has_password() or not self.tailnet():
+                        return self.send_error(403, "the password is already set, or this is not the tailnet")
+                    pw = form.get("password", "")
+                    if len(pw) < 10 or pw != form.get("password2"):
+                        return self.send(admin.login("/", t["bad_setup"], True), code=400)
+                    users.set_password(pw)
+                return self.redirect("/", self.cookie_header(users.cookie(), Login.DAYS * 86400))
             if users and path == "/logout":
                 return self.redirect("/login", self.cookie_header("", 0))
             if not self.gate(path):
@@ -532,7 +581,7 @@ def main():
     root = a.content.resolve()
     build.load_config(root)  # fail early on a bad content folder
     if users and not users.load().get("hash"):
-        print("trazos admin: no password yet: run with --set-password; until then nobody can log in", flush=True)
+        print("trazos admin: no password yet: create it from the tailnet portal, or with --set-password", flush=True)
     admin = Admin(root, a.publish, a.lock, a.site_url, users)
     print(f"trazos admin: http://{a.bind}:{a.port}/ -> {root}{' (login required)' if users else ''}", flush=True)
     ThreadingHTTPServer((a.bind, a.port), handler(admin, a.require_tailscale_user)).serve_forever()

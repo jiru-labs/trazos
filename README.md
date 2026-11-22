@@ -114,15 +114,18 @@ over `pieces/<id>.md`, so a re-ingest never undoes them; clear a field and the o
 back. Every save rebuilds the site and is undone if the build refuses it. With `--publish` a
 save is committed and pushed; `--lock FILE` shares a lock with your ingest job.
 
-**Login.** One admin, one password, no sign-up. `--password-file admin.json` turns it on;
-set or change the password with
+**Login.** One admin (user `admin`), one password, no sign-up. `--password-file admin.json`
+turns it on. The front page is a portal: *just enter* opens the public site, *log in as admin*
+asks for user and password. While there is no password, the portal offers to create it, but
+only to a tailnet user (`tailscale serve` adds `Tailscale-User-Login`; Funnel never does), so it
+can be put on the internet with `tailscale funnel` before or after. Or set or change it with
 
 ```sh
 python3 tools/admin.py --password-file admin.json --set-password   # asks twice
 ```
 
 It is stored as a PBKDF2 hash (keep the file out of git); changing it logs out every open
-session, and five wrong passwords lock the login for 15 minutes. Serve it over HTTPS (e.g.
+session, and five wrong passwords lock the login for 15 minutes (tailnet and public counted apart). Serve it over HTTPS (e.g.
 `tailscale serve --bg --https=8765 http://127.0.0.1:8765`); `--require-tailscale-user`
 additionally limits it to people on your tailnet. Cross-site form posts are refused.
 

@@ -277,7 +277,7 @@ async function loadRemoved() {
 }
 // The published images of a hidden piece (or one just brought back, until the rebuild) are gone: fetch it from the repo with the token.
 function pieceImg(p, suffix, attrs) {
-  if (!p.hidden && !p.fromRepo) return h("img", { src: `../img/${p.id}${suffix}.jpg`, alt: "", ...attrs });
+  if (!p.hidden && !p.fromRepo) return h("img", { src: `../img/${p.id}${suffix}.jpg${p.v ? `?v=${p.v}` : ""}`, alt: "", ...attrs });
   const img = h("img", { alt: "", ...attrs });
   fetch(API + repoPath(`pieces/${p.id}${suffix}.jpg`), { cache: "no-store",
     headers: { Accept: "application/vnd.github.raw", Authorization: `Bearer ${token}` } })

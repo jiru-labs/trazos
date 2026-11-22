@@ -16,6 +16,7 @@ CONTENT_DIR holds:
 
 Output goes to CONTENT_DIR/public. Standard library only (Python 3.11+).
 """
+import hashlib
 import html
 import json
 import re
@@ -244,6 +245,11 @@ def parse(path, pieces_dir):
             fail(f"{path.name}: {img.name} is missing")
         if has_metadata(img):
             fail(f"{img.name}: still carries EXIF/XMP metadata (GPS, camera, date); run tools/prepare.sh")
+    # The image's address carries a fingerprint of its bytes (`img/<id>.jpg?v=…`): Pages serves images
+    # with max-age=600 under the same name, so a reframed or reprocessed image would stay stale in a
+    # browser for up to 10 minutes; a new fingerprint is a new address and shows at once.
+    files = [pieces_dir / f"{path.stem}{x}" for x in (".jpg", "-thumb.jpg", ".mp4")]
+    meta["v"] = hashlib.sha1(b"".join(f.read_bytes() for f in files if f.exists())).hexdigest()[:10]
     meta["video"] = meta.get("video", "").lower() in ("yes", "sí", "si", "true")
     if meta["video"]:
         mp4 = pieces_dir / f"{path.stem}.mp4"
@@ -287,11 +293,11 @@ def media(site, p, label):
     JavaScript (CSP script-src 'none'), and with preload="none" a click or tap on the picture
     did nothing, only the small play button worked. Muted autoplay is allowed everywhere.
     Grids still load only the poster; the video loads on its own page."""
-    src = f'../{site.base}img/{e(p["id"])}'
+    src, v = f'../{site.base}img/{e(p["id"])}', f'?v={p["v"]}'
     if p.get("video"):
-        return (f'<video controls muted autoplay loop playsinline preload="auto" poster="{src}.jpg" aria-label="{e(label)}">'
-                f'<source src="{src}.mp4" type="video/mp4"></video>')
-    return f'<img src="{src}.jpg" alt="{e(label)}">'
+        return (f'<video controls muted autoplay loop playsinline preload="auto" poster="{src}.jpg{v}" aria-label="{e(label)}">'
+                f'<source src="{src}.mp4{v}" type="video/mp4"></video>')
+    return f'<img src="{src}.jpg{v}" alt="{e(label)}">'
 
 
 def slug(t):
@@ -348,7 +354,7 @@ class Site:
                 img = self.pieces_dir / f"{piece['id']}.jpg"
                 if img.stat().st_size > PREVIEW_MAX_BYTES:
                     img = self.pieces_dir / f"{piece['id']}-thumb.jpg"
-                tags.append(("og:image", f"{cfg['url']}/img/{img.name}"))
+                tags.append(("og:image", f"{cfg['url']}/img/{img.name}?v={piece['v']}"))
                 size = jpeg_size(img)
                 if size:
                     tags += [("og:image:width", str(size[0])), ("og:image:height", str(size[1]))]
@@ -442,7 +448,7 @@ class Site:
             label = p.get("title") or self.t["untitled"]
             cards.append(
                 f'<a class="card{" video" if p.get("video") else ""}" href="{up}piece/{e(p["id"])}.html">'
-                f'<img src="{res}img/{e(p["id"])}-thumb.jpg" alt="{e(label)}" loading="lazy">'
+                f'<img src="{res}img/{e(p["id"])}-thumb.jpg?v={p["v"]}" alt="{e(label)}" loading="lazy">'
                 f'<span>{e(label)}</span></a>'
             )
         return '<div class="grid">' + "".join(cards) + "</div>"
@@ -557,7 +563,7 @@ def admin_page(root, out, cfg, pieces):
         meta, story = sidecar(root / "pieces" / f"{p['id']}.md")
         base = {k: meta.get(k, "") for k in FIELDS if k not in ("id", "order")}
         base["story"] = story.strip()
-        items.append({"id": p["id"], "year": p["year"], "month": p["month"], "order": p["order"],
+        items.append({"id": p["id"], "v": p["v"], "year": p["year"], "month": p["month"], "order": p["order"],
                       "title": p.get("title", ""), "base": base})
     data = {"repo": cfg["admin"], "deploy": cfg.get("admin_deploy", ""), "sync": cfg.get("admin_sync") is True,
             "lang": cfg["lang"],

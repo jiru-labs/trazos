@@ -20,3 +20,11 @@
   display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; }
 .admin fieldset.techniques legend { font-weight: 600; padding: 0 .3rem; }
 .admin fieldset.techniques label.check { font-weight: 400; }
+.admin .frame-editor { display: grid; gap: .6rem; max-width: 700px; }
+.admin canvas.frame-view { max-width: 100%; max-height: 60vh; width: auto; height: auto; justify-self: start;
+  border-radius: 6px; box-shadow: var(--shadow); cursor: grab; touch-action: none; }
+.admin canvas.frame-view:active { cursor: grabbing; }
+.admin .frame-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.admin .frame-tools label.zoom { display: flex; gap: .5rem; align-items: center; font-weight: 600; }
+.admin .frame-tools button { padding: .45rem 1rem; }
+.admin button.secondary { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }

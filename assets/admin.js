@@ -28,6 +28,9 @@ const S = {
     age: "Edad (5, o 4-5)", original: "del archivo", reset: "Vacía un campo y vuelve el del archivo.",
     site_title: "Título de la web", artist: "Nombre de la artista",
     rights: "Aviso de derechos (vacío = el de serie)", protect: "Proteger (fuera de buscadores e IA)",
+    img_edit: "Encuadre", img_help: "Arrastra la imagen para moverla. Lo que queda fuera no se publica: ni en la web ni en la miniatura.",
+    zoom: "Zoom", turn_left: "↺ Girar", turn_right: "Girar ↻", img_center: "Centrar", img_save: "Guardar encuadre",
+    img_restore: "Volver a la original", img_saved: "Encuadre guardado. La web se actualiza en 1–2 minutos.",
     back: "← Obras", edited: "editada", untitled: "Sin título", loading: "Cargando…",
     change_pw: "Cambiar la contraseña", new_pw: "Contraseña nueva", pw_changed: "Contraseña cambiada.",
     bad_year: "El año tiene que ser de 1900 a 2200.", bad_age: "La edad es un número o un rango como 4-5.",
@@ -53,6 +56,9 @@ const S = {
     age: "Age (5, or 4-5)", original: "from the file", reset: "Clear a field to bring back the one from the file.",
     site_title: "Site title", artist: "Artist's name",
     rights: "Rights notice (empty = the default)", protect: "Protect (no search engines, no AI)",
+    img_edit: "Framing", img_help: "Drag the image to move it. What falls outside is not published: not on the site, not in the thumbnail.",
+    zoom: "Zoom", turn_left: "↺ Turn", turn_right: "Turn ↻", img_center: "Centre", img_save: "Save framing",
+    img_restore: "Back to the original", img_saved: "Framing saved. The site updates in 1–2 minutes.",
     back: "← Pieces", edited: "edited", untitled: "Untitled", loading: "Loading…",
     change_pw: "Change the password", new_pw: "New password", pw_changed: "Password changed.",
     bad_year: "The year must be from 1900 to 2200.", bad_age: "The age is a number or a range like 4-5.",
@@ -340,6 +346,7 @@ async function pieceView(id) {
       if (v[k] && v[k] !== String(base[k] || "").trim()) next[k] = v[k];  // empty = back to the original
     }
     if (v.month !== String(base.month || "")) next.month = v.month;
+    if (edits.frame) next.frame = edits.frame;  // the image's framing is saved by the editor, not here
     if (form.elements.namedItem("favourite").checked !== isYes(base.favourite)) next.favourite = form.elements.namedItem("favourite").checked ? "yes" : "no";
     const off = form.elements.namedItem("hidden").checked;
     if (off !== isYes(base.hidden)) next.hidden = off ? "yes" : "no";
@@ -376,7 +383,149 @@ async function pieceView(id) {
     h("small", {}, T.reset),
     h("button", {}, T.save));
   show(h("p", {}, h("a", { href: "#/" }, T.back)),
-    h("div", { class: "piece-edit" }, pieceImg(p, "", {})), out, form);
+    isYes(base.video) ? h("div", { class: "piece-edit" }, pieceImg(p, "", {})) : frameEditor(p, edits), out, form);
+}
+
+// The image editor: quarter turns, zoom and pan, BAKED into the published JPEGs. What is framed out
+// is gone from the site for good: the public build only ever gets the rendered pieces/<id>.jpg and
+// -thumb.jpg. To frame again (zoom back out) the untouched original stays in the private content
+// repo as <id>-master.jpg / -master-thumb.jpg, which build.py refuses to publish and ingest leaves
+// alone. Every save renders from that original, so edits never pile up JPEG losses.
+const FRAME0 = { rotate: 0, zoom: 1, x: 0.5, y: 0.5 };
+const isFrame0 = (f) => f.rotate === 0 && f.zoom === 1 && f.x === 0.5 && f.y === 0.5;
+function clampFrame(f) {
+  const half = 0.5 / f.zoom, c = (v) => Math.min(1 - half, Math.max(half, v));
+  return { rotate: ((f.rotate % 360) + 360) % 360, zoom: f.zoom, x: c(f.x), y: c(f.y) };
+}
+// The framed picture, long side at most `long` px: the visible part of the turned image, nothing else.
+function renderFrame(img, f, long) {
+  const turned = f.rotate % 180 !== 0, iw = img.naturalWidth, ih = img.naturalHeight;
+  const w = turned ? ih : iw, hh = turned ? iw : ih, k = Math.min(1, long / Math.max(w, hh));
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(w * k); cv.height = Math.round(hh * k);
+  const ctx = cv.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.translate(cv.width / 2, cv.height / 2);
+  ctx.scale(k * f.zoom, k * f.zoom);
+  ctx.translate(w / 2 - f.x * w, hh / 2 - f.y * hh);
+  ctx.rotate((f.rotate * Math.PI) / 180);
+  ctx.drawImage(img, -iw / 2, -ih / 2);
+  return cv;
+}
+const toJpeg = (cv, q) => new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("JPEG"))), "image/jpeg", q));
+async function rawFile(path) {
+  const r = await fetch(API + repoPath(path), { cache: "no-store",
+    headers: { Accept: "application/vnd.github.raw", Authorization: `Bearer ${token}` } });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`GitHub ${r.status}`);
+  return r.blob();
+}
+const blobSha = async (path) => { const j = await gh(repoPath(path), { allow404: true }); return j && j.sha; };
+// Several files in ONE commit (Git Data API): the image, its thumbnail and its frame never go half saved.
+// Each change: { path, bytes } | { path, sha } (an existing blob) | { path, remove: true }.
+async function commitFiles(changes, message) {
+  const base = `/repos/${data.repo}`, repo = await gh(base), branch = repo.default_branch;
+  const tree = [];
+  for (const c of changes) {
+    let sha = c.sha;
+    if (c.remove) sha = null;
+    else if (!sha) sha = (await gh(`${base}/git/blobs`, { method: "POST", body: JSON.stringify({ content: b64(c.bytes), encoding: "base64" }) })).sha;
+    tree.push({ path: c.path, mode: "100644", type: "blob", sha });
+  }
+  for (let attempt = 0; ; attempt++) {  // someone else committed meanwhile (an ingest): rebase once
+    const ref = await gh(`${base}/git/ref/heads/${branch}`), parent = await gh(`${base}/git/commits/${ref.object.sha}`);
+    const t = await gh(`${base}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: parent.tree.sha, tree }) });
+    const m = /^(.+) <(.+)>$/.exec(data.committer || ""), who = m ? { name: m[1], email: m[2] } : undefined;
+    const c = await gh(`${base}/git/commits`, { method: "POST",
+      body: JSON.stringify({ message, tree: t.sha, parents: [ref.object.sha], ...(who ? { author: who, committer: who } : {}) }) });
+    try { return await gh(`${base}/git/refs/heads/${branch}`, { method: "PATCH", body: JSON.stringify({ sha: c.sha }) }); }
+    catch (err) { if (attempt || !/GitHub 422/.test(err.message)) throw err; }
+  }
+}
+function frameEditor(p, edits) {
+  const id = p.id, out = h("div"), cv = h("canvas", { class: "frame-view" });
+  let img = null, hasMaster = false, f = clampFrame({ ...FRAME0, ...(edits.frame || {}) });
+  const zoom = h("input", { type: "range", min: "1", max: "4", step: "0.05", value: String(f.zoom), "aria-label": T.zoom });
+  const draw = () => {
+    if (!img) return;
+    const r = renderFrame(img, f, 900);
+    cv.width = r.width; cv.height = r.height;
+    cv.getContext("2d").drawImage(r, 0, 0);
+  };
+  const set = (g) => { f = clampFrame(g); zoom.value = String(f.zoom); draw(); };
+  zoom.addEventListener("input", () => set({ ...f, zoom: +zoom.value }));
+  let drag = null;  // pan: moving the picture right shows more of its left
+  cv.addEventListener("pointerdown", (ev) => { drag = { x: ev.clientX, y: ev.clientY, f }; cv.setPointerCapture(ev.pointerId); });
+  cv.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    const box = cv.getBoundingClientRect();
+    set({ ...drag.f, x: drag.f.x - (ev.clientX - drag.x) / (box.width * f.zoom), y: drag.f.y - (ev.clientY - drag.y) / (box.height * f.zoom) });
+  });
+  for (const e of ["pointerup", "pointercancel"]) cv.addEventListener(e, () => { drag = null; });
+  const turn = (d) => set({ ...f, rotate: f.rotate + d, x: 0.5, y: 0.5 });
+  const btn = (label, onclick, cls) => h("button", { type: "button", onclick, ...(cls ? { class: cls } : {}) }, label);
+  const originalFiles = async () => {
+    const [m, mt] = await Promise.all([blobSha(`pieces/${id}-master.jpg`), blobSha(`pieces/${id}-master-thumb.jpg`)]);
+    return [{ path: `pieces/${id}.jpg`, sha: m }, { path: `pieces/${id}-thumb.jpg`, sha: mt },
+      { path: `pieces/${id}-master.jpg`, remove: true }, { path: `pieces/${id}-master-thumb.jpg`, remove: true }];
+  };
+  const restore = btn(T.img_restore, () => save(originalFiles, null), "secondary");
+  const box = h("div", { class: "frame-editor" }, cv,
+    h("div", { class: "frame-tools" }, btn(T.turn_left, () => turn(-90), "secondary"), btn(T.turn_right, () => turn(90), "secondary"),
+      h("label", { class: "zoom" }, T.zoom, zoom), btn(T.img_center, () => set(FRAME0), "secondary"),
+      btn(T.img_save, () => save(async () => {
+        const changes = [];
+        if (!hasMaster) {  // first framing: the current published files become the original (same blobs, no upload)
+          const [j, t] = await Promise.all([blobSha(`pieces/${id}.jpg`), blobSha(`pieces/${id}-thumb.jpg`)]);
+          changes.push({ path: `pieces/${id}-master.jpg`, sha: j }, { path: `pieces/${id}-master-thumb.jpg`, sha: t });
+        }
+        const big = await toJpeg(renderFrame(img, f, 1600), 0.82), small = await toJpeg(renderFrame(img, f, 600), 0.78);
+        changes.push({ path: `pieces/${id}.jpg`, bytes: new Uint8Array(await big.arrayBuffer()) },
+          { path: `pieces/${id}-thumb.jpg`, bytes: new Uint8Array(await small.arrayBuffer()) });
+        return changes;
+      }, f))),
+    h("small", {}, T.img_help), out);
+  // Save the files and the frame together; frame null = back to the original (no frame, no master).
+  async function save(files, frame) {
+    for (const b of box.querySelectorAll("button")) b.disabled = true;
+    out.replaceChildren(msg(T.loading));
+    try {
+      if (frame && isFrame0(frame)) {  // centred and whole = the original: restore it, or nothing to do
+        if (hasMaster) return await save(originalFiles, null);
+        out.replaceChildren();
+        for (const b of box.querySelectorAll("button")) b.disabled = false;
+        return;
+      }
+      const changes = await files();
+      const file = await getFile(`edits/${id}.json`), ed = file ? JSON.parse(file.text) : {};
+      if (frame && !isFrame0(frame)) ed.frame = frame; else delete ed.frame;
+      changes.push(Object.keys(ed).length ? { path: `edits/${id}.json`, bytes: enc.encode(JSON.stringify(ed, null, 1) + "\n") }
+        : file ? { path: `edits/${id}.json`, remove: true } : null);
+      await commitFiles(changes.filter(Boolean), `Admin: ${id} (${frame ? "framing" : "original image"})`);
+      p.edited = true;
+      const note = await republish();
+      await pieceView(id);
+      app.querySelector(".frame-editor").after(msg(note || T.img_saved, !!note));
+    } catch (err) {
+      out.replaceChildren(msg(`${T.error}: ${err.message}`, true));
+      for (const b of box.querySelectorAll("button")) b.disabled = false;
+    }
+  }
+  (async () => {
+    try {
+      const master = await rawFile(`pieces/${id}-master.jpg`);
+      hasMaster = !!master;
+      const blob = master || (await rawFile(`pieces/${id}.jpg`));
+      if (!blob) throw new Error(`pieces/${id}.jpg`);
+      const el = new Image();
+      el.src = URL.createObjectURL(blob);
+      await el.decode();
+      img = el;
+      if (hasMaster) box.querySelector(".frame-tools").append(restore);
+      draw();
+    } catch (err) { out.replaceChildren(msg(`${T.error}: ${err.message}`, true)); }
+  })();
+  return box;
 }
 
 // trazos.toml: only top-level `key = value` lines are read or written; everything else is kept.

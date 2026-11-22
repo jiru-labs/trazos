@@ -157,6 +157,15 @@ the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each sa
   your own stay as written. Piece edits go to
   `edits/<id>.json` and win over `pieces/<id>.md`, so a re-ingest never undoes them; clear a
   field and the original comes back.
+- **Frame an image**: turn it a quarter at a time, zoom in and drag, then *Save framing*. The
+  framed picture is baked into `pieces/<id>.jpg` and its thumbnail (one commit), so what you
+  framed out is not on the site by any route: no CSS over the full image, no metadata (the
+  browser writes a fresh JPEG). To zoom back out, the untouched original stays in the content
+  repo as `pieces/<id>-master.jpg` / `-master-thumb.jpg` (`build.py` refuses to publish
+  anything named `-master`, and ingest never remakes a framed piece); every save renders from
+  it, and *Back to the original* restores its exact bytes. The frame itself is `frame` in
+  `edits/<id>.json`. Zooming in enlarges the 1600 px web image, so a strong zoom looks softer.
+  Videos are not framed. Test: `tests/admin-frame.mjs`.
 - **Take a piece off the site** without deleting it: tick *Off the site* (`hidden: yes`). Its
   pages and images are left out of the build and of the admin's public `data.json`; the photo
   stays in the repo, and the admin lists it under *Off the site* (image fetched with the token)
@@ -234,7 +243,7 @@ de idioma (se traduce la web, no los títulos ni las historias). Con `url = "htt
 compartido por WhatsApp o Telegram muestra el título y el dibujo. La portada es el favorito más reciente, o la obra que digas con `cover = "<id>"`; mejor aún, una tarjeta hecha para compartir en `site/share.jpg` (o `share-<idioma>.jpg`), que `tools/share-card.py` compone con tres dibujos, el título y una línea. Cada web lleva su icono de pestaña;
 La portada abre con una línea sencilla sobre qué es la web («Los dibujos de Ada, guardados año a año…») y el pie dice «Hecho con trazos, de Jiru Labs»; cámbiala con `about` / `about_<idioma>`, o `about = ""` para quitarla.
 para usar uno tuyo, pon `favicon.svg`, `favicon.ico` y `apple-touch-icon.png` en `site/`.
-Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba). Las técnicas se marcan de una lista, varias por obra (`techniques = ["ceras", ...]`, también en Ajustes; vacía = una de serie de 15, que se traducen solos en el otro idioma).
+Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba). Las técnicas se marcan de una lista, varias por obra (`techniques = ["ceras", ...]`, también en Ajustes; vacía = una de serie de 15, que se traducen solos en el otro idioma). Las imágenes se pueden encuadrar (girar, acercar y mover): lo que queda fuera no se publica por ninguna vía, y el original sigue en el repo privado para volver a él.
 
 ## License
 

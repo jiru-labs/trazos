@@ -25,7 +25,8 @@ file's mtime, stay "without month", and their age is computed from the year alon
 Images are decoded (HEIC too), turned upright, cropped to the sheet of paper when one is
 found (OpenCV; --no-crop keeps the whole photo), resized to 1600/600 px and written as JPEG
 WITHOUT any metadata. Images are made once; --reprocess makes them all again (after changing
---no-crop, say), and the pieces it rewrote count as updated.
+--no-crop, say), and the pieces it rewrote count as updated; an image framed in the admin
+(it has <id>-master.jpg) is never remade: the edit wins.
 Videos (.mp4 .mov .m4v .webm .mkv .avi .3gp) are transcoded with ffmpeg to an MP4 that plays
 in every browser (H.264, long side at most 1280 px, fast start), WITHOUT sound (a voice in the
 background is not the artwork's to publish) and with ALL metadata dropped, GPS included; a frame from the first second becomes the poster and grid thumbnail.
@@ -387,7 +388,9 @@ def main():
                      video=is_video(p))
         md_path = pieces / f"{pid}.md"
         image_missing = not (pieces / f"{pid}.jpg").exists() or (is_video(p) and not (pieces / f"{pid}.mp4").exists())
-        if image_missing or a.reprocess:
+        # Framed in the admin (it keeps the original as <id>-master.jpg): the edit wins, as edits/ do.
+        framed = (pieces / f"{pid}-master.jpg").exists()
+        if image_missing or (a.reprocess and not framed):
             if is_video(p):
                 transcode(p, pieces / f"{pid}.mp4")
                 save_web(poster(pieces / f"{pid}.mp4"), pieces, pid)
@@ -405,7 +408,8 @@ def main():
     # A file skipped for want of a tool is still in the archive: keep it on the site.
     for h in [h for h in state if h not in seen and state[h].get("name") not in skipped_videos]:
         pid = state.pop(h)["id"]
-        for f in (f"{pid}.md", f"{pid}.jpg", f"{pid}-thumb.jpg", f"{pid}.mp4"):
+        for f in (f"{pid}.md", f"{pid}.jpg", f"{pid}-thumb.jpg", f"{pid}.mp4", f"{pid}-master.jpg",
+                  f"{pid}-master-thumb.jpg"):
             (pieces / f).unlink(missing_ok=True)
         removed.append(pid)
 

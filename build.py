@@ -11,6 +11,7 @@ CONTENT_DIR holds:
   pieces/<id>.mp4        a video piece (`video: yes`): web MP4, metadata stripped; the .jpg is its poster
   site/                  optional extra static files (CNAME, favicon...), copied last
   edits/<id>.json        optional hand edits (the /admin/ page writes them); they win over pieces/<id>.md
+  pieces/<id>-master*.jpg  the original of an image framed in the admin; never published
   admin-key.json         written by /admin/ on setup: the GitHub token, encrypted with the admin password
 
 Output goes to CONTENT_DIR/public. Standard library only (Python 3.11+).
@@ -208,6 +209,16 @@ def sidecar(path):
     return meta, m.group(2)
 
 
+def check_frame(name, f):
+    """`frame` in an edit: how the admin framed the image (quarter turns, zoom, centre). Only the admin
+    reads it back; the published JPEGs are already the framed result."""
+    ok = (isinstance(f, dict) and set(f) <= {"rotate", "zoom", "x", "y"} and f.get("rotate", 0) in (0, 90, 180, 270)
+          and all(isinstance(f.get(k, 0.5), (int, float)) for k in ("zoom", "x", "y"))
+          and 1 <= f.get("zoom", 1) <= 8 and all(0 <= f.get(k, 0.5) <= 1 for k in ("x", "y")))
+    if not ok:
+        fail(f"{name}: frame must be {{rotate: 0|90|180|270, zoom: 1-8, x: 0-1, y: 0-1}}")
+
+
 def parse(path, pieces_dir):
     meta, body = sidecar(path)
     # Hand edits (the /admin/ page) win over the ingested sidecar, which a re-ingest rewrites.
@@ -216,6 +227,8 @@ def parse(path, pieces_dir):
         for key, value in json.loads(edits.read_text(encoding="utf-8")).items():
             if key == "story":
                 body = value
+            elif key == "frame":
+                check_frame(edits.name, value)  # the admin's image edit: already baked into the JPEGs
             elif key in FIELDS and key not in ("id", "order"):
                 meta[key] = str(value)
             else:
@@ -682,6 +695,11 @@ def build(root):
     if cfg.get("admin"):
         admin_page(root, out, cfg, pieces)
 
+    # The untouched original of an image framed in the admin (pieces/<id>-master*.jpg) stays in the
+    # private content: what was zoomed out of the picture must not be published by any route.
+    leaked = [f.relative_to(out) for f in out.rglob("*-master*")]
+    if leaked:
+        fail(f"an image original would be published: {', '.join(map(str, leaked))}")
     print(f"trazos: built {len(pieces)} pieces, {len(tags)} tags -> {out}")
 
 

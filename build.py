@@ -45,8 +45,9 @@ STRINGS = {
         "about": "Los dibujos de {artist}, guardados año a año: cada uno con la edad que tenía al "
                  "hacerlo y, a veces, su historia.",
         "made_with": "Hecho con", "by_jiru": "de", "language": "Idioma", "source": "Código de trazos en GitHub",
-        "techniques": ["lápiz", "lápices de colores", "ceras", "rotulador", "témpera", "acuarela",
-                       "pintura de dedos", "tiza", "collage", "plastilina", "digital", "técnica mixta"],
+        "techniques": ["lápiz", "lápices de colores", "ceras", "rotuladores", "témpera", "acuarela",
+                       "pintura de dedos", "tiza", "pastel", "collage", "pegatinas", "purpurina",
+                       "plastilina", "digital", "técnica mixta"],
         "summary": "{n} dibujos y obras de {artist}, de {first} a {last}.", "summary_one": "{n} dibujos y obras de {artist}, de {first}.",
         "rights": "© {artist}. Todos los derechos reservados. No se autoriza copiar estas obras ni usarlas "
                   "para minería de textos y datos o para entrenar inteligencia artificial "
@@ -62,8 +63,9 @@ STRINGS = {
         "about": "{artist}'s drawings, kept year by year: each one with the age it was made at "
                  "and, sometimes, its story.",
         "made_with": "Made with", "by_jiru": "by", "language": "Language", "source": "trazos source code on GitHub",
-        "techniques": ["pencil", "coloured pencils", "crayons", "marker", "poster paint", "watercolour",
-                       "finger paint", "chalk", "collage", "modelling clay", "digital", "mixed media"],
+        "techniques": ["pencil", "coloured pencils", "crayons", "markers", "poster paint", "watercolour",
+                       "finger paint", "chalk", "pastels", "collage", "stickers", "glitter",
+                       "modelling clay", "digital", "mixed media"],
         "summary": "{n} drawings and pieces by {artist}, {first} to {last}.", "summary_one": "{n} drawings and pieces by {artist}, from {first}.",
         "rights": "© {artist}. All rights reserved. Copying these works, or using them for text and data "
                   "mining or to train artificial intelligence, is not permitted "
@@ -350,6 +352,15 @@ class Site:
                 out += f'<link rel="alternate" hreflang="{l}" href="{e(cfg["url"])}/{sub}{e(page)}">\n'
         return out
 
+    def technique(self, value):
+        """A piece's techniques ("ceras, pegatinas"), each stock one in this page's language: the stock
+        lists are aligned by position, so "ceras" on an English page reads "crayons". A technique of
+        the site's own stays as written."""
+        stock, mine = STRINGS[self.cfg["lang"]]["techniques"], self.t["techniques"]
+        index = {x.casefold(): i for i, x in enumerate(stock)}
+        return ", ".join(mine[index[x.casefold()]] if x.casefold() in index else x
+                         for x in split_techniques(value))
+
     def age(self, n):
         """'5' -> '5 años' / 'age 5'; '3–4' -> '3–4 años' / 'ages 3–4'."""
         if not str(n).isdigit():
@@ -499,12 +510,17 @@ def protect(out):
     (out / ".well-known" / "tdmrep.json").write_text('[{"location": "/*", "tdm-reservation": 1}]\n')
 
 
+def split_techniques(value):
+    """A piece can have several techniques, comma separated in its one `technique` field."""
+    return [x.strip() for x in str(value or "").split(",") if x.strip()]
+
+
 def techniques(cfg, pieces):
     """The admin's technique pick-list: `techniques` (or the stock list), then any other technique a
     piece already has, so choosing from the list never loses what is written."""
     names, seen = [], set()
     for x in (cfg.get("techniques") or STRINGS[cfg["lang"]]["techniques"]) + sorted(
-            str(p.get("technique", "")) for p in pieces):
+            x for p in pieces for x in split_techniques(p.get("technique"))):
         x = x.strip()
         if x and x.casefold() not in seen:
             seen.add(x.casefold())
@@ -611,7 +627,7 @@ def write_language(site, pieces, out):
         names = p["artists"]
         by = t["by"].format(names=", ".join(names[:-1]) + t["and"] + names[-1] if len(names) > 1 else names[0]) if names else ""
         facts = " · ".join(x for x in (by, str(p["year"]), site.age(p["age"]) if p.get("age") else "",
-                                       p.get("technique", "")) if x)
+                                       site.technique(p.get("technique"))) if x)
         tags = "".join(f'<a href="../tag/{e(slug(x))}.html">{e(x)}</a>' for x in p["tags"])
         story = "".join(f"<p>{e(s)}</p>" for s in p["story"])
         body = (

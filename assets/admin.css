@@ -16,3 +16,7 @@
 .admin .piece-edit img { max-width: 100%; max-height: 55vh; border-radius: 6px; box-shadow: var(--shadow); }
 .admin .card .badge { color: var(--violet); font-size: .8rem; }
 .admin .login { max-width: 420px; }
+.admin fieldset.techniques { border: 2px solid var(--line); border-radius: 6px; padding: .5rem .8rem .7rem;
+  display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; }
+.admin fieldset.techniques legend { font-weight: 600; padding: 0 .3rem; }
+.admin fieldset.techniques label.check { font-weight: 400; }

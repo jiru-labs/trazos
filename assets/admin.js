@@ -23,7 +23,7 @@ const S = {
     bad_pw: "Las contraseñas no coinciden o tienen menos de 12 caracteres.",
     pieces: "Obras", settings: "Ajustes", logout: "Salir", save: "Guardar",
     saved: "Guardado. La web se actualiza en 1–2 minutos.", error: "No se guardó",
-    title: "Título", story: "Historia", artists: "Artistas (vacío = solo {artist}; varios, separados por comas)", technique: "Técnica", no_technique: "—", techniques: "Técnicas para elegir (separadas por comas; vacío = las de serie)", tags: "Etiquetas (separadas por comas)",
+    title: "Título", story: "Historia", artists: "Artistas (vacío = solo {artist}; varios, separados por comas)", technique: "Técnicas", techniques: "Técnicas para elegir (separadas por comas; vacío = las de serie)", tags: "Etiquetas (separadas por comas)",
     favourite: "Favorito", year: "Año", month: "Mes (no se muestra; solo ordena)", no_month: "Sin mes",
     age: "Edad (5, o 4-5)", original: "del archivo", reset: "Vacía un campo y vuelve el del archivo.",
     site_title: "Título de la web", artist: "Nombre de la artista",
@@ -48,7 +48,7 @@ const S = {
     bad_pw: "The passwords differ or are shorter than 12 characters.",
     pieces: "Pieces", settings: "Settings", logout: "Log out", save: "Save",
     saved: "Saved. The site updates in 1–2 minutes.", error: "Not saved",
-    title: "Title", story: "Story", artists: "Artists (empty = only {artist}; several, comma separated)", technique: "Technique", no_technique: "—", techniques: "Techniques to choose from (comma separated; empty = the stock ones)", tags: "Tags (comma separated)",
+    title: "Title", story: "Story", artists: "Artists (empty = only {artist}; several, comma separated)", technique: "Techniques", techniques: "Techniques to choose from (comma separated; empty = the stock ones)", tags: "Tags (comma separated)",
     favourite: "Favourite", year: "Year", month: "Month (never shown; only orders)", no_month: "No month",
     age: "Age (5, or 4-5)", original: "from the file", reset: "Clear a field to bring back the one from the file.",
     site_title: "Site title", artist: "Artist's name",
@@ -304,7 +304,8 @@ async function listView() {
 
 // The technique pick-list: the site's list (built into data.json), plus this piece's own values, so
 // opening and saving a piece never changes a technique nobody touched.
-const techniqueList = (...own) => uniq([...(data.techniques || []), ...own.map((x) => String(x || ""))]);
+// A piece can have several: they are ticked boxes, saved comma separated in its one `technique` field.
+const techniqueList = (...own) => uniq([...(data.techniques || []), ...own.flatMap((x) => String(x || "").split(","))]);
 const splitList = (v) => uniq(v.split(","));
 function uniq(list) {
   const seen = new Set();
@@ -329,7 +330,7 @@ async function pieceView(id) {
   const form = h("form", { onsubmit: async (ev) => {
     ev.preventDefault();
     const v = {
-      title: form.elements.namedItem("title").value.trim(), story: form.elements.namedItem("story").value.trim(), technique: form.elements.namedItem("technique").value.trim(),
+      title: form.elements.namedItem("title").value.trim(), story: form.elements.namedItem("story").value.trim(), technique: [...form.querySelectorAll('input[name="technique"]:checked')].map((x) => x.value).join(", "),
       tags: form.elements.namedItem("tags").value.trim(), artists: form.elements.namedItem("artists").value.trim(), year: form.elements.namedItem("year").value.trim(), age: form.elements.namedItem("age").value.trim(), month: form.elements.namedItem("month").value,
     };
     if (v.year && !(/^\d{4}$/.test(v.year) && +v.year >= 1900 && +v.year <= 2200)) return out.replaceChildren(msg(T.bad_year, true));
@@ -360,9 +361,10 @@ async function pieceView(id) {
     text("title", T.title),
     h("label", {}, T.story, hint("story", "…"), h("textarea", { name: "story" }, cur.story || "")),
     text("artists", fmt(T.artists)),
-    h("label", {}, T.technique, hint("technique"),
-      h("select", { name: "technique" }, h("option", { value: "", selected: !cur.technique }, T.no_technique),
-        techniqueList(base.technique, cur.technique).map((x) => h("option", { value: x, selected: x === cur.technique }, x)))),
+    h("fieldset", { class: "techniques" }, h("legend", {}, T.technique, hint("technique")),
+      techniqueList(base.technique, cur.technique).map((x) => h("label", { class: "check" },
+        h("input", { type: "checkbox", name: "technique", value: x,
+          checked: splitList(String(cur.technique || "")).some((y) => y.toLowerCase() === x.toLowerCase()) }), x))),
     text("tags", T.tags),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "favourite", checked: isYes(cur.favourite) }), T.favourite),
     h("label", {}, T.year, hint("year"), h("input", { type: "number", name: "year", min: "1900", max: "2200", value: cur.year || "" })),

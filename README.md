@@ -149,10 +149,12 @@ the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each sa
 - **Log in** with user `admin` and that password. The token is decrypted in that tab only and
   forgotten when the tab closes. Change the password in *Settings*.
 - **Edit** the title, story, artists (one or more, comma separated, shown as «By …» on the piece; empty = only the site's artist), technique, tags, favourite, year, month and age of any piece, and
-  the basic settings (site title, artist, rights notice, protection; the language is the visitor's choice, below). The technique
-  is picked from a list: `techniques = ["crayons", ...]` in `trazos.toml`, also editable in
-  *Settings* (empty = a stock list in the site's language); a technique a piece already has
-  always stays on the list. Piece edits go to
+  the basic settings (site title, artist, rights notice, protection; the language is the visitor's choice, below). Techniques
+  are ticked from a list, several per piece (saved as `technique: crayons, stickers`):
+  `techniques = ["crayons", ...]` in `trazos.toml`, also editable in *Settings* (empty = a stock
+  list of 15 in the site's language); a technique a piece already has always stays on
+  the list. Stock techniques are translated on the other language's pages («ceras» → «crayons»);
+  your own stay as written. Piece edits go to
   `edits/<id>.json` and win over `pieces/<id>.md`, so a re-ingest never undoes them; clear a
   field and the original comes back.
 - **Take a piece off the site** without deleting it: tick *Off the site* (`hidden: yes`). Its
@@ -232,7 +234,7 @@ de idioma (se traduce la web, no los títulos ni las historias). Con `url = "htt
 compartido por WhatsApp o Telegram muestra el título y el dibujo. La portada es el favorito más reciente, o la obra que digas con `cover = "<id>"`; mejor aún, una tarjeta hecha para compartir en `site/share.jpg` (o `share-<idioma>.jpg`), que `tools/share-card.py` compone con tres dibujos, el título y una línea. Cada web lleva su icono de pestaña;
 La portada abre con una línea sencilla sobre qué es la web («Los dibujos de Ada, guardados año a año…») y el pie dice «Hecho con trazos, de Jiru Labs»; cámbiala con `about` / `about_<idioma>`, o `about = ""` para quitarla.
 para usar uno tuyo, pon `favicon.svg`, `favicon.ico` y `apple-touch-icon.png` en `site/`.
-Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba). La técnica se elige de una lista (`techniques = ["ceras", ...]`, también en Ajustes; vacía = una de serie).
+Para editar títulos, historias y ajustes desde la propia web: `admin = "usuario/repo"` en `trazos.toml` y el enlace «Entrar» del pie (modo admin, arriba). Las técnicas se marcan de una lista, varias por obra (`techniques = ["ceras", ...]`, también en Ajustes; vacía = una de serie de 15, que se traducen solos en el otro idioma).
 
 ## License
 

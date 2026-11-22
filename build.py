@@ -25,7 +25,7 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parent
 ASSETS = ENGINE / "assets"
 
-FIELDS = ("id", "year", "month", "order", "age", "technique", "title", "tags", "favourite")
+FIELDS = ("id", "year", "month", "order", "age", "technique", "title", "tags", "favourite", "hidden")
 # Hand-made ids look like 2026-001; tools/ingest.py uses a short content hash.
 ID_RE = re.compile(r"^(\d{4}-\d{3}|[0-9a-f]{10})$")
 AGE_RE = re.compile(r"^(\d+)(?:\s*[-–]\s*(\d+))?$")
@@ -176,6 +176,9 @@ def parse(path, pieces_dir):
     meta["order"] = int(meta.get("order") or 0)
     meta["tags"] = [t.strip().lower() for t in meta.get("tags", "").split(",") if t.strip()]
     meta["favourite"] = meta.get("favourite", "").lower() in ("yes", "sí", "si", "true")
+    # `hidden: yes` takes a piece off the site (pages, images and the admin's public data.json)
+    # without deleting it: it stays in the repo, and the admin lists it from there to bring it back.
+    meta["hidden"] = meta.get("hidden", "").lower() in ("yes", "sí", "si", "true")
     meta["story"] = [p.strip() for p in body.strip().split("\n\n") if p.strip()]
     return meta
 
@@ -281,7 +284,8 @@ def admin_page(root, out, cfg, pieces):
         base["story"] = story.strip()
         items.append({"id": p["id"], "year": p["year"], "month": p["month"], "order": p["order"],
                       "title": p.get("title", ""), "base": base})
-    data = {"repo": cfg["admin"], "deploy": cfg.get("admin_deploy", ""), "lang": cfg["lang"],
+    data = {"repo": cfg["admin"], "deploy": cfg.get("admin_deploy", ""), "sync": cfg.get("admin_sync") is True,
+            "lang": cfg["lang"],
             "committer": cfg.get("admin_committer", ""),
             "settings": {k: raw.get(k) for k in ("title", "artist", "lang", "rights", "protect") if k in raw},
             "pieces": items}
@@ -292,7 +296,7 @@ def admin_page(root, out, cfg, pieces):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>admin · {e(cfg['title'])}</title>
 <link rel="stylesheet" href="../style.css">
@@ -314,6 +318,7 @@ def build(root):
     t = site.t
     pieces_dir, out = root / "pieces", root / "public"
     pieces = sorted((parse(p, pieces_dir) for p in pieces_dir.glob("*.md")), key=lambda p: (p["year"], p["order"], p["id"]))
+    pieces = [p for p in pieces if not p["hidden"]]
 
     if out.exists():
         shutil.rmtree(out)

@@ -118,6 +118,14 @@ the GitHub API, so GitHub Pages republishes the site 1–2 minutes after each sa
   the basic settings (site title, artist, language, rights notice, protection). Piece edits go to
   `edits/<id>.json` and win over `pieces/<id>.md`, so a re-ingest never undoes them; clear a
   field and the original comes back.
+- **Take a piece off the site** without deleting it: tick *Off the site* (`hidden: yes`). Its
+  pages and images are left out of the build and of the admin's public `data.json`; the photo
+  stays in the repo, and the admin lists it under *Off the site* (image fetched with the token)
+  so you can bring it back.
+- **Sync now** (`admin_sync = true`): a button that moves the `sync` branch (it rewrites
+  `sync-request.json` there). Whatever ingests the source folder watches that branch with a
+  cheap `git ls-remote origin refs/heads/sync` and runs early when its sha changes, so new
+  photos need not wait for the scheduled run.
 - **Honest limits.** `admin-key.json` is public, so the password is what protects the token:
   use a long one. If it leaks, revoke the token on GitHub; forgot it, delete `admin-key.json`
   and set up again. Public pages stay script-free; only `/admin/` runs a script.
@@ -139,15 +147,15 @@ its history even after you delete it. To keep the artwork out of every public hi
   concurrency: { group: pages, cancel-in-progress: true }
   jobs:
     site:
-      uses: nyakojiru/trazos/.github/workflows/site.yml@v0.10.0
-      with: { content: owner/site-contenido, trazos_ref: v0.10.0 }
+      uses: nyakojiru/trazos/.github/workflows/site.yml@v0.11.0
+      with: { content: owner/site-contenido, trazos_ref: v0.11.0 }
       secrets: { content_key: "${{ secrets.CONTENT_KEY }}" }
   ```
 
 Set up once: add a **read-only deploy key** to the private repo and its private half as the
 `CONTENT_KEY` secret of the public one; set Pages to *GitHub Actions* (and the custom domain) on
 the public repo. In the private repo's `trazos.toml` put `admin = "owner/site-contenido"` and
-`admin_deploy = "owner/site"`; the admin token then needs *Contents: read and write* on the
+`admin_deploy = "owner/site"` (and `admin_sync = true` if a host ingests on request); the admin token then needs *Contents: read and write* on the
 private repo and *Actions: read and write* on the public one, and every save asks the public
 `pages.yml` to run. Whatever else writes the private repo (an ingest cron) runs the same
 dispatch afterwards: `POST /repos/owner/site/actions/workflows/pages.yml/dispatches` with

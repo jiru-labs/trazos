@@ -46,7 +46,7 @@ STRINGS = {
         "lang_name": "Español", "locale": "es_ES", "count": "{n} obras",
         "about": "Los dibujos de {artist}, guardados año a año: cada uno con la edad que tenía al "
                  "hacerlo y, a veces, su historia.",
-        "made_with": "Hecho con", "by_jiru": "de", "language": "Idioma", "source": "Código de trazos en GitHub",
+        "made_with": "Hecho con", "by_jiru": "de", "language": "Idioma", "skip": "Saltar al contenido", "source": "Código de trazos en GitHub",
         "techniques": ["lápiz", "lápices de colores", "ceras", "rotuladores", "témpera", "acuarela",
                        "pintura de dedos", "tiza", "pastel", "collage", "pegatinas", "purpurina",
                        "plastilina", "digital", "técnica mixta"],
@@ -64,7 +64,7 @@ STRINGS = {
         "lang_name": "English", "locale": "en_GB", "count": "{n} pieces",
         "about": "{artist}'s drawings, kept year by year: each one with the age it was made at "
                  "and, sometimes, its story.",
-        "made_with": "Made with", "by_jiru": "by", "language": "Language", "source": "trazos source code on GitHub",
+        "made_with": "Made with", "by_jiru": "by", "language": "Language", "skip": "Skip to content", "source": "trazos source code on GitHub",
         "techniques": ["pencil", "coloured pencils", "crayons", "markers", "poster paint", "watercolour",
                        "finger paint", "chalk", "pastels", "collage", "stickers", "glitter",
                        "modelling clay", "digital", "mixed media"],
@@ -429,11 +429,12 @@ class Site:
 <link rel="stylesheet" href="{res}style.css">
 </head>
 <body>
+<a class="skip" href="#main">{t['skip']}</a>
 <header>
 <a class="home" href="{up}index.html">{e(self.title)}</a>
 <nav><a href="{up}index.html">{t['by_year']}</a><a href="{up}{TAGS_PAGE}">{t['tags']}</a><a href="{up}{FAVS_PAGE}">{t['favourites']}</a>{switch}</nav>
 </header>
-<main>
+<main id="main">
 {body}
 </main>
 {footer}</body>
